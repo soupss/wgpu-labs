@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <webgpu.h>
 #include <SDL3/SDL.h>
+#include <utility>
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
@@ -128,10 +129,33 @@ void on_device_request_ended(
     }
 }
 
+void get_next_surface_texture_view(WGPUSurface *surface, WGPUTextureView *targetView,  WGPUSurfaceTexture * surfaceTexture) {
+    wgpuSurfaceGetCurrentTexture(*surface, surfaceTexture);
+    if (surfaceTexture->status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && surfaceTexture->status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+        return;
+    }
+
+    printf("Test 138\n");
+
+    WGPUTextureViewDescriptor viewDescriptor;
+    viewDescriptor.nextInChain = NULL;
+    viewDescriptor.format = wgpuTextureGetFormat(surfaceTexture->texture);
+    viewDescriptor.dimension = WGPUTextureViewDimension_2D;
+    viewDescriptor.baseMipLevel = 0;
+    viewDescriptor.mipLevelCount = 1;
+    viewDescriptor.baseArrayLayer = 0;
+    viewDescriptor.arrayLayerCount = 1;
+    viewDescriptor.aspect = WGPUTextureAspect_All;
+    *targetView = wgpuTextureCreateView((*surfaceTexture).texture, &viewDescriptor);
+    printf("Test 140\n");
+}
+
 void initialize(
     SDL_Window **window,
     WGPUInstance *instance,
-    WGPUDevice *device)
+    WGPUDevice *device,
+    WGPUSurface *surface
+)
 {
     // create window
     SDL_Init(SDL_INIT_VIDEO);
@@ -151,7 +175,7 @@ void initialize(
     };
     WGPUSurfaceDescriptor surface_desc = {0};
     surface_desc.nextInChain = (const WGPUChainedStruct*)&src;
-    WGPUSurface surface = wgpuInstanceCreateSurface(*instance, &surface_desc);
+    *surface = wgpuInstanceCreateSurface(*instance, &surface_desc);
 
     // get adapter
     struct AdapterRequestState adapter_request_state;
@@ -162,7 +186,7 @@ void initialize(
     WGPURequestAdapterOptions adapter_request_options = {0};
     adapter_request_options.nextInChain = NULL;
     adapter_request_options.featureLevel = WGPUFeatureLevel_Core;
-    adapter_request_options.compatibleSurface = surface;
+    adapter_request_options.compatibleSurface = *surface;
     wgpuInstanceRequestAdapter(*instance, &adapter_request_options, adapter_callback_info);
     while(!adapter_request_state.request_ended) {
         wgpuInstanceProcessEvents(*instance);
@@ -197,7 +221,7 @@ void initialize(
     surface_config.width = WINDOW_WIDTH;
     surface_config.height = WINDOW_HEIGHT;
     WGPUSurfaceCapabilities surface_capabilities = {0};
-    wgpuSurfaceGetCapabilities(surface, adapter_request_state.adapter, &surface_capabilities);
+    wgpuSurfaceGetCapabilities(*surface, adapter_request_state.adapter, &surface_capabilities);
     WGPUTextureFormat surface_format = WGPUTextureFormat_Undefined;
     if (surface_capabilities.formatCount > 0) {
         surface_format = surface_capabilities.formats[0];
@@ -209,7 +233,7 @@ void initialize(
     surface_config.device = *device;
     surface_config.presentMode = WGPUPresentMode_Fifo;
     surface_config.alphaMode = WGPUCompositeAlphaMode_Auto;
-    wgpuSurfaceConfigure(surface, &surface_config);
+    wgpuSurfaceConfigure(*surface, &surface_config);
 
     wgpuAdapterRelease(adapter_request_state.adapter);
 }
@@ -218,8 +242,9 @@ int main() {
     SDL_Window *window = NULL;
     WGPUDevice device = NULL;
     WGPUInstance instance = NULL;
+    WGPUSurface surface = NULL;
 
-    initialize(&window, &instance, &device);
+    initialize(&window, &instance, &device, &surface);
 
     bool running = true;
     while (running) {
@@ -227,6 +252,41 @@ int main() {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = false;
         }
+        WGPUTextureView targetView = NULL;
+        WGPUSurfaceTexture surfaceTexture;
+        get_next_surface_texture_view(&surface, &targetView, &surfaceTexture);
+
+
+        WGPURenderPassDescriptor renderPassDesc = {};
+        renderPassDesc.nextInChain = NULL;
+
+        WGPURenderPassColorAttachment renderPassColorAttachment = {};
+        renderPassColorAttachment.view = targetView;
+        renderPassColorAttachment.resolveTarget = NULL;
+        renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
+        renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
+        renderPassColorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
+
+        renderPassDesc.colorAttachmentCount = 1;
+        renderPassDesc.colorAttachments = &renderPassColorAttachment;
+        WGPUCommandEncoder commandEncoder;
+        
+
+        WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(commandEncoder, &renderPassDesc);
+        // [...] Use Render Pass
+        wgpuRenderPassEncoderEnd(renderPass);
+        wgpuRenderPassEncoderRelease(renderPass);
+
+        WGPUComputePassEncoder bruh = wgpuCommandEncoderBeginComputePass();
+        WGPURenderPassEncoder brd = wgpuCommandEncoderBeginRenderPass();
+
+
+
+        //Release texture after presenting surface
+        wgpuSurfacePresent(surface);
+        wgpuTextureRelease(surfaceTexture.texture); 
+
+        wgpuTextureViewRelease(targetView);
     }
 
     // TODO: unconfigure surface
