@@ -1,5 +1,9 @@
 #include <stdio.h>
 #include <webgpu.h>
+#include <SDL3/SDL.h>
+
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
 
 typedef struct AdapterRequestState {
     WGPUAdapter adapter = NULL;
@@ -71,7 +75,7 @@ void on_adapter_request_ended(
 }
 
 typedef struct DeviceRequestState {
-    WGPUDevice device = NULL;
+    WGPUDevice *device = NULL;
     bool request_ended = false;
 } DeviceRequestState;
 
@@ -111,7 +115,7 @@ void on_device_request_ended(
     void *userdata2)
 {
     DeviceRequestState *device_request_state = (DeviceRequestState*)userdata1;
-    device_request_state->device = device;
+    *(device_request_state->device) = device;
     device_request_state->request_ended = true;
     if (status == WGPURequestDeviceStatus_Success) {
         printf("Device request succeeded\n");
@@ -124,24 +128,49 @@ void on_device_request_ended(
     }
 }
 
-
-WGPUDevice request_device(WGPUInstance instance)
+void initialize(
+    SDL_Window **window,
+    WGPUInstance *instance,
+    WGPUDevice *device)
 {
+    // create window
+    SDL_Init(SDL_INIT_VIDEO);
+    *window = SDL_CreateWindow("a", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_METAL);
+    SDL_MetalView metal_view = SDL_Metal_CreateView(*window);
+    void* metal_layer = SDL_Metal_GetLayer(metal_view);
+
+    // create instance
+    WGPUInstanceDescriptor instance_desc = {0};
+    instance_desc.nextInChain= NULL;
+    *instance = wgpuCreateInstance(&instance_desc);
+
+    // create surface
+    WGPUSurfaceSourceMetalLayer src = {
+        .chain = { .next = NULL, .sType = WGPUSType_SurfaceSourceMetalLayer },
+        .layer = metal_layer
+    };
+    WGPUSurfaceDescriptor surface_desc = {0};
+    surface_desc.nextInChain = (const WGPUChainedStruct*)&src;
+    WGPUSurface surface = wgpuInstanceCreateSurface(*instance, &surface_desc);
+
     // get adapter
     struct AdapterRequestState adapter_request_state;
     WGPURequestAdapterCallbackInfo adapter_callback_info = {0};
     adapter_callback_info.callback = on_adapter_request_ended;
     adapter_callback_info.userdata1 = &adapter_request_state;
+    adapter_callback_info.mode = WGPUCallbackMode_AllowProcessEvents;
     WGPURequestAdapterOptions adapter_request_options = {0};
     adapter_request_options.nextInChain = NULL;
     adapter_request_options.featureLevel = WGPUFeatureLevel_Core;
-    wgpuInstanceRequestAdapter(instance, &adapter_request_options, adapter_callback_info);
+    adapter_request_options.compatibleSurface = surface;
+    wgpuInstanceRequestAdapter(*instance, &adapter_request_options, adapter_callback_info);
     while(!adapter_request_state.request_ended) {
-        wgpuInstanceProcessEvents(instance);
+        wgpuInstanceProcessEvents(*instance);
     }
 
     // get device
     DeviceRequestState device_request_state;
+    device_request_state.device = device;
     WGPUDeviceDescriptor device_desc = {0};
     device_desc.nextInChain = NULL;
     device_desc.defaultQueue.nextInChain = NULL;
@@ -150,28 +179,37 @@ WGPUDevice request_device(WGPUInstance instance)
     device_callback_info.nextInChain = NULL;
     device_callback_info.callback = on_device_request_ended;
     device_callback_info.userdata1 = &device_request_state;
+    device_callback_info.mode  = WGPUCallbackMode_AllowProcessEvents;
     wgpuAdapterRequestDevice(adapter_request_state.adapter, &device_desc, device_callback_info);
     while (!device_request_state.request_ended) { // TODO: prettier busywait
-        wgpuInstanceProcessEvents(instance);
+        wgpuInstanceProcessEvents(*instance);
     }
     wgpuAdapterRelease(adapter_request_state.adapter);
-    return device_request_state.device;
+
+    WGPUQueue queue = wgpuDeviceGetQueue(*device);
+    WGPUCommandEncoderDescriptor encoder_desc = {};
+    encoder_desc.nextInChain = NULL;
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(*device, &encoder_desc);
 }
 
 int main() {
-    WGPUInstanceDescriptor instance_desc = {0};
-    instance_desc.nextInChain= NULL;
-    WGPUInstance instance = wgpuCreateInstance(&instance_desc);
-    WGPUDevice device = request_device(instance);
+    SDL_Window *window = NULL;
+    WGPUDevice device = NULL;
+    WGPUInstance instance = NULL;
 
-    WGPUQueue queue = wgpuDeviceGetQueue(device);
+    initialize(&window, &instance, &device);
 
-    WGPUCommandEncoderDescriptor encoder_desc = {};
-    encoder_desc.nextInChain = NULL;
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoder_desc);
+    bool running = true;
+    while (running) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_EVENT_QUIT) running = false;
+        }
+    }
 
-    // release
+    // terminate
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     wgpuDeviceRelease(device);
     wgpuInstanceRelease(instance);
 }
-

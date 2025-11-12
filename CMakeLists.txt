@@ -36,12 +36,14 @@ find_library(WGPU_NATIVE_LIB
     ${HOMEBREW_PREFIX}/opt/wgpu-native/lib
 )
 
+find_package(SDL3 REQUIRED CONFIG)
+
 if(NOT WEBGPU_INCLUDE_DIR OR NOT WGPU_NATIVE_LIB)
   message(FATAL_ERROR "Could not find webgpu headers or wgpu_native library")
 endif()
 
 target_include_directories(bin PRIVATE ${WEBGPU_INCLUDE_DIR})
-target_link_libraries(bin PRIVATE ${WGPU_NATIVE_LIB})
+target_link_libraries(bin PRIVATE ${WGPU_NATIVE_LIB} SDL3::SDL3)
 
 # On macOS you’ll usually also need system frameworks for window/surface integration
 if(APPLE)
@@ -53,3 +55,4 @@ if(APPLE)
     # Make sure the app can find the dylib at runtime if you use the shared lib
     set_target_properties(bin PROPERTIES BUILD_RPATH "${HOMEBREW_PREFIX}/lib")
 endif()
+
