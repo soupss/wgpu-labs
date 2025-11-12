@@ -256,11 +256,11 @@ void render_pass_type_shit(WGPUDevice device,WGPUTextureView targetView) {
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoderDesc);
         
         WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
+        wgpuRenderPassEncoderEnd(renderPass);
 
         WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
         cmdBufferDescriptor.nextInChain = NULL;
 
-        wgpuRenderPassEncoderEnd(renderPass);
         WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &cmdBufferDescriptor);
         wgpuCommandEncoderRelease(encoder); // release encoder after it's finished
 
