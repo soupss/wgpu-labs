@@ -146,7 +146,8 @@ void get_next_surface_texture_view(WGPUSurface *surface, WGPUTextureView *target
     viewDescriptor.baseArrayLayer = 0;
     viewDescriptor.arrayLayerCount = 1;
     viewDescriptor.aspect = WGPUTextureAspect_All;
-    *targetView = wgpuTextureCreateView((*surfaceTexture).texture, &viewDescriptor);
+    viewDescriptor.usage = WGPUTextureUsage_RenderAttachment;
+    *targetView = wgpuTextureCreateView(surfaceTexture->texture, &viewDescriptor);
     printf("Test 140\n");
 }
 
@@ -209,12 +210,6 @@ void initialize(
         wgpuInstanceProcessEvents(*instance);
     }
 
-    // queue and encoder
-    WGPUQueue queue = wgpuDeviceGetQueue(*device);
-    WGPUCommandEncoderDescriptor encoder_desc = {};
-    encoder_desc.nextInChain = NULL;
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(*device, &encoder_desc);
-
     // configure surface
     WGPUSurfaceConfiguration surface_config = {0};
     surface_config.nextInChain = NULL;
@@ -238,11 +233,46 @@ void initialize(
     wgpuAdapterRelease(adapter_request_state.adapter);
 }
 
+void render_pass_type_shit(WGPUDevice device,WGPUTextureView targetView) {
+
+        WGPUQueue queue = wgpuDeviceGetQueue(device);
+
+        WGPURenderPassDescriptor renderPassDesc = {};
+        renderPassDesc.nextInChain = NULL;
+        WGPUCommandEncoderDescriptor encoderDesc = {};
+        encoderDesc.nextInChain = NULL;
+
+        WGPURenderPassColorAttachment renderPassColorAttachment = {};
+        renderPassColorAttachment.view = targetView;
+        renderPassColorAttachment.resolveTarget = NULL;
+        renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
+        renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
+        renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        renderPassColorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
+
+        renderPassDesc.colorAttachmentCount = 1;
+        renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoderDesc);
+        
+        WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
+
+        WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
+        cmdBufferDescriptor.nextInChain = NULL;
+
+        wgpuRenderPassEncoderEnd(renderPass);
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &cmdBufferDescriptor);
+        wgpuCommandEncoderRelease(encoder); // release encoder after it's finished
+
+        wgpuQueueSubmit(queue, 1, &command);
+        wgpuCommandBufferRelease(command);
+}
 int main() {
     SDL_Window *window = NULL;
     WGPUDevice device = NULL;
     WGPUInstance instance = NULL;
     WGPUSurface surface = NULL;
+    WGPUQueue  queue = NULL;
 
     initialize(&window, &instance, &device, &surface);
 
@@ -256,34 +286,11 @@ int main() {
         WGPUSurfaceTexture surfaceTexture;
         get_next_surface_texture_view(&surface, &targetView, &surfaceTexture);
 
-
-        WGPURenderPassDescriptor renderPassDesc = {};
-        renderPassDesc.nextInChain = NULL;
-
-        WGPURenderPassColorAttachment renderPassColorAttachment = {};
-        renderPassColorAttachment.view = targetView;
-        renderPassColorAttachment.resolveTarget = NULL;
-        renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
-        renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
-        renderPassColorAttachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
-
-        renderPassDesc.colorAttachmentCount = 1;
-        renderPassDesc.colorAttachments = &renderPassColorAttachment;
-        WGPUCommandEncoder commandEncoder;
-        
-
-        WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(commandEncoder, &renderPassDesc);
-        // [...] Use Render Pass
-        wgpuRenderPassEncoderEnd(renderPass);
-        wgpuRenderPassEncoderRelease(renderPass);
-
-        WGPUComputePassEncoder bruh = wgpuCommandEncoderBeginComputePass();
-        WGPURenderPassEncoder brd = wgpuCommandEncoderBeginRenderPass();
+        render_pass_type_shit(device, targetView);
 
 
-
-        //Release texture after presenting surface
         wgpuSurfacePresent(surface);
+        //Release texture after presenting surface
         wgpuTextureRelease(surfaceTexture.texture); 
 
         wgpuTextureViewRelease(targetView);
