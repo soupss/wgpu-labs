@@ -53,11 +53,11 @@ void print_adapter_info(WGPUAdapter adapter) {
 }
 
 void on_adapter_request_ended(
-        WGPURequestAdapterStatus status,
-        WGPUAdapter adapter,
-        WGPUStringView message,
-        void *userdata1,
-        void *userdata2)
+    WGPURequestAdapterStatus status,
+    WGPUAdapter adapter,
+    WGPUStringView message,
+    void *userdata1,
+    void *userdata2)
 {
     AdapterRequestState *state = (AdapterRequestState*)userdata1;
     state->adapter = adapter;
@@ -184,12 +184,34 @@ void initialize(
     while (!device_request_state.request_ended) { // TODO: prettier busywait
         wgpuInstanceProcessEvents(*instance);
     }
-    wgpuAdapterRelease(adapter_request_state.adapter);
 
+    // queue and encoder
     WGPUQueue queue = wgpuDeviceGetQueue(*device);
     WGPUCommandEncoderDescriptor encoder_desc = {};
     encoder_desc.nextInChain = NULL;
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(*device, &encoder_desc);
+
+    // configure surface
+    WGPUSurfaceConfiguration surface_config = {0};
+    surface_config.nextInChain = NULL;
+    surface_config.width = WINDOW_WIDTH;
+    surface_config.height = WINDOW_HEIGHT;
+    WGPUSurfaceCapabilities surface_capabilities = {0};
+    wgpuSurfaceGetCapabilities(surface, adapter_request_state.adapter, &surface_capabilities);
+    WGPUTextureFormat surface_format = WGPUTextureFormat_Undefined;
+    if (surface_capabilities.formatCount > 0) {
+        surface_format = surface_capabilities.formats[0];
+    }
+    surface_config.format = surface_format;
+    surface_config.viewFormatCount = 0;
+    surface_config.viewFormats = NULL;
+    surface_config.usage = WGPUTextureUsage_RenderAttachment;
+    surface_config.device = *device;
+    surface_config.presentMode = WGPUPresentMode_Fifo;
+    surface_config.alphaMode = WGPUCompositeAlphaMode_Auto;
+    wgpuSurfaceConfigure(surface, &surface_config);
+
+    wgpuAdapterRelease(adapter_request_state.adapter);
 }
 
 int main() {
@@ -207,7 +229,7 @@ int main() {
         }
     }
 
-    // terminate
+    // TODO: unconfigure surface
     SDL_DestroyWindow(window);
     SDL_Quit();
     wgpuDeviceRelease(device);
