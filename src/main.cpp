@@ -284,15 +284,13 @@ void initialize_surface(WGPUInstance *instance, void *metal_layer, WGPUSurface *
     *surface = wgpuInstanceCreateSurface(*instance, &surface_desc);
 }
 
-void configure_surface(WGPUSurface *surface, WGPUDevice *device, WGPUAdapter adapter)
+void configure_surface(WGPUSurface *surface, WGPUDevice *device, WGPUAdapter adapter,WGPUSurfaceCapabilities surface_capabilities)
 {
     // configure surface
     WGPUSurfaceConfiguration surface_config = {0};
     surface_config.nextInChain = NULL;
     surface_config.width = WINDOW_WIDTH;
     surface_config.height = WINDOW_HEIGHT;
-    WGPUSurfaceCapabilities surface_capabilities = {0};
-    wgpuSurfaceGetCapabilities(*surface, adapter, &surface_capabilities);
     WGPUTextureFormat surface_format = WGPUTextureFormat_Undefined;
     if (surface_capabilities.formatCount > 0)
     {
@@ -357,7 +355,7 @@ void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView, WGPURe
     wgpuCommandBufferRelease(command);
 }
 
-void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
+void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device, WGPUSurfaceCapabilities surface_capabilities)
 {
     
     //Initialize vertex shading module
@@ -399,7 +397,7 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     pipelineDesc.vertex.bufferCount = 0;
     pipelineDesc.vertex.buffers = NULL;
     pipelineDesc.vertex.module = vertex_shader_module;
-    pipelineDesc.vertex.entryPoint = WEBGPU_STR("vs_main");
+    pipelineDesc.vertex.entryPoint = WEBGPU_STR("main");
     pipelineDesc.vertex.constantCount = 0;
     pipelineDesc.vertex.constants = NULL;
 
@@ -416,7 +414,7 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     // [...] Describe fragment pipeline state
     WGPUFragmentState fragmentState{};
     fragmentState.module = fragment_shader_module;
-    fragmentState.entryPoint = WEBGPU_STR("fs_main");
+    fragmentState.entryPoint = WEBGPU_STR("main");
     fragmentState.constantCount = 0;
     fragmentState.constants = nullptr;
     
@@ -432,8 +430,16 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     blendState.alpha.dstFactor = WGPUBlendFactor_One;
     blendState.alpha.operation = WGPUBlendOperation_Add;
 
+
+    
+    WGPUTextureFormat surface_format = WGPUTextureFormat_Undefined;
+    if (surface_capabilities.formatCount > 0)
+    {
+        surface_format = surface_capabilities.formats[0];
+    }
+
     WGPUColorTargetState colorTarget{};
-    colorTarget.format = WGPUTextureFormat_Undefined;
+    colorTarget.format = surface_format;
     colorTarget.blend = &blendState;
     colorTarget.writeMask = WGPUColorWriteMask_All; // We could write to only some of the color channels.
 
@@ -462,6 +468,7 @@ void initialize(
     WGPUQueue *queue,
     WGPURenderPipeline *pipeline)
 {
+
     // Initialize components in proper order
     void *metal_layer = NULL;
     initialize_window(window, &metal_layer);
@@ -470,12 +477,15 @@ void initialize(
 
     WGPUAdapter adapter = NULL;
     initialize_device(instance, device, surface, &adapter);
-    configure_surface(surface, device, adapter);
-
+    
+    WGPUSurfaceCapabilities surface_capabilities = {0};
+    wgpuSurfaceGetCapabilities(*surface, adapter, &surface_capabilities);
+    configure_surface(surface, device, adapter, surface_capabilities);
+    
     // Release adapter after use
     wgpuAdapterRelease(adapter);
 
-    initialize_pipeline(pipeline, device);
+    initialize_pipeline(pipeline, device,surface_capabilities);
 }
 
 int main()
