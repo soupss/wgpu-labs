@@ -376,7 +376,7 @@ WGPUVertexBufferLayout * get_vertex_buffer_layouts() {
 
 }
 
-void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device, WGPUSurfaceCapabilities surface_capabilities)
+void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device,WGPUPipelineLayout * pipeline_layout ,WGPUSurfaceCapabilities surface_capabilities)
 {
     
     //Initialize vertex shading module
@@ -489,11 +489,39 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device, WGPUS
     // Default value as well (irrelevant for count = 1 anyways)
     pipelineDesc.multisample.alphaToCoverageEnabled = false;
 
-    pipelineDesc.layout = NULL;
+    pipelineDesc.layout = * pipeline_layout;
     *pipeline = wgpuDeviceCreateRenderPipeline(*device, &pipelineDesc);
 
     wgpuShaderModuleRelease(vertex_shader_module);
     wgpuShaderModuleRelease(fragment_shader_module);
+}
+
+void initialize_layout(WGPUDevice *device, WGPUPipelineLayout * pipeline_layout, WGPUBindGroupLayout * bind_group_layout) {
+    // Define binding layout
+    WGPUBindGroupLayoutEntry bindingLayout = {};
+
+    // The binding index as used in the @binding attribute in the shader
+    bindingLayout.binding = 0;
+
+    // The stage that needs to access this resource
+    bindingLayout.visibility = WGPUShaderStage_Fragment;
+    bindingLayout.buffer.type = WGPUBufferBindingType_Uniform;
+
+
+    // Create a bind group layout
+    WGPUBindGroupLayoutDescriptor bindGroupLayoutDesc = {};
+    bindGroupLayoutDesc.nextInChain = NULL;
+    bindGroupLayoutDesc.entryCount = 1;
+    bindGroupLayoutDesc.entries = &bindingLayout;
+    * bind_group_layout = wgpuDeviceCreateBindGroupLayout(*device, &bindGroupLayoutDesc);
+
+    // Create the pipeline layout
+    WGPUPipelineLayoutDescriptor layoutDesc = {};
+    layoutDesc.nextInChain = NULL;
+    layoutDesc.bindGroupLayoutCount = 1;
+    layoutDesc.bindGroupLayouts = bind_group_layout;
+    *pipeline_layout = wgpuDeviceCreatePipelineLayout(*device, &layoutDesc);
+
 }
 
 void initialize(
@@ -502,7 +530,10 @@ void initialize(
     WGPUInstance *instance,
     WGPUSurface *surface,
     WGPUQueue *queue,
-    WGPURenderPipeline *pipeline)
+    WGPURenderPipeline *pipeline,
+WGPUPipelineLayout * pipeline_layout,
+WGPUBindGroupLayout * bind_group_layout
+)
 {
 
     // Initialize components in proper order
@@ -521,9 +552,42 @@ void initialize(
     // Release adapter after use
     wgpuAdapterRelease(adapter);
 
-    initialize_pipeline(pipeline, device,surface_capabilities);
+    initialize_layout(device, pipeline_layout, bind_group_layout);
+
+    initialize_pipeline(pipeline, device, pipeline_layout, surface_capabilities);
 
     *queue = wgpuDeviceGetQueue(*device);
+}
+
+WGPUBindGroup create_bind_group(WGPUDevice device, WGPUBindGroupLayout bind_group_layout, WGPUBuffer buffer, uint32_t binding_index, size_t buffer_size) {
+    // Create a binding
+    WGPUBindGroupEntry binding = {};
+    // The index of the binding (the entries in bindGroupDesc can be in any order)
+    binding.binding = binding_index;
+    // The buffer it is actually bound to
+    binding.buffer = buffer;
+    // We can specify an offset within the buffer, so that a single buffer can hold
+    // multiple uniform blocks.
+    binding.offset = 0;
+    // And we specify again the size of the buffer.
+    binding.size = buffer_size;
+
+    // A bind group contains one or multiple bindings
+    WGPUBindGroupDescriptor bindGroupDesc = {};
+    bindGroupDesc.layout = bind_group_layout;
+    // There must be as many bindings as declared in the layout!
+    bindGroupDesc.entryCount = 1;
+    bindGroupDesc.entries = &binding;
+    return wgpuDeviceCreateBindGroup(device, &bindGroupDesc);
+}
+
+WGPUBuffer create_uniform_buffer(WGPUDevice device, size_t buffer_size) {
+    WGPUBufferDescriptor buffer_desc = {};
+    buffer_desc.nextInChain = NULL;
+    buffer_desc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
+    buffer_desc.size = buffer_size;
+    buffer_desc.mappedAtCreation = false;
+    return wgpuDeviceCreateBuffer(device, &buffer_desc);
 }
 
 int main()
@@ -534,23 +598,52 @@ int main()
     WGPUSurface surface = NULL;
     WGPUQueue queue = NULL;
     WGPURenderPipeline pipeline = NULL;
+    WGPUPipelineLayout pipeline_layout = NULL;
+    WGPUBindGroupLayout bind_group_layout = NULL;
 
-    initialize(&window, &device, &instance, &surface, &queue, &pipeline);
+    initialize(&window, &device, &instance, &surface, &queue, &pipeline, &pipeline_layout, &bind_group_layout);
 
     const float vertices[] = {
+        //Triangle 1
 		0.0f,  0.5f,  1.0f, 1.0f, 0.0f, 1.0f,
 		-0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f,
-		0.5f,  -0.5f, 1.0f, 1.0f, 1.0f, 0.0f
+		0.5f,  -0.5f, 1.0f, 1.0f, 1.0f, 0.0f,
+        
+        //Triangle 2
+		0.1f,  0.5f,  1.0f, 1.0f, 0.0f, 1.0f,
+		0.5f, -0.5f, 1.0f, 1.0f, 1.0f, 0.0f,
+		0.5f,  0.5f, 1.0f, 0.0f, 1.0f, 1.0f,
+        
+        //Triangle 3
+		-0.1f,  0.5f,  1.0f, 1.0f, 0.0f, 1.0f,
+		-0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f,
+		-0.5f,  0.5f, 1.0f, 1.0f, 1.0f, 0.0f
     };
-
+    
+    unsigned long vertex_buffer_size = sizeof(vertices);
     WGPUBufferDescriptor vertex_buffer_desc = {};
     vertex_buffer_desc.nextInChain = NULL;
     vertex_buffer_desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-    vertex_buffer_desc.size = sizeof(vertices);
+    vertex_buffer_desc.size = vertex_buffer_size;
     vertex_buffer_desc.mappedAtCreation = false;
     WGPUBuffer vertex_buffer = wgpuDeviceCreateBuffer(device, &vertex_buffer_desc);
+    
+    wgpuQueueWriteBuffer(queue, vertex_buffer, 0, vertices, vertex_buffer_size);
+    
+    const float inital_color[] = {0.0f, 1.0f, 0.0f};
+    WGPUBuffer color_buffer = create_uniform_buffer(device, sizeof(inital_color) + 4);
 
-    wgpuQueueWriteBuffer(queue, vertex_buffer, 0, vertices, sizeof(vertices));
+    wgpuQueueWriteBuffer(queue, color_buffer, 0, inital_color, sizeof(inital_color));
+
+    WGPUBindGroup bindGroup = create_bind_group(device, bind_group_layout, color_buffer, 0, 4 * sizeof(float));
+
+    const float white[] = {1.0f, 1.0f, 1.0f};
+    WGPUBuffer white_buffer = create_uniform_buffer(device, sizeof(white) + 4);
+
+    wgpuQueueWriteBuffer(queue, white_buffer, 0, white, sizeof(white));
+    
+    WGPUBindGroup bindGroup2 = create_bind_group(device, bind_group_layout, white_buffer, 0, 4 * sizeof(float));
+    // ...existing code...
 
     bool running = true;
     while (running)
@@ -560,6 +653,9 @@ int main()
         {
             if (e.type == SDL_EVENT_QUIT)
                 running = false;
+            else if (e.type == SDL_EVENT_KEY_DOWN) {
+
+            }
         }
         WGPUTextureView targetView = NULL;
         WGPUSurfaceTexture surfaceTexture;
@@ -568,8 +664,14 @@ int main()
         // Begin render pass
         RenderPassState renderState = begin_render_pass(device, targetView);
 
+        wgpuRenderPassEncoderSetVertexBuffer(renderState.renderPass, 0, vertex_buffer, 0, vertex_buffer_size);
         wgpuRenderPassEncoderSetPipeline(renderState.renderPass, pipeline);
-        wgpuRenderPassEncoderDraw(renderState.renderPass, 3, 1, 0, 0);
+        // Add this line to set the bind group
+        
+        wgpuRenderPassEncoderSetBindGroup(renderState.renderPass, 0, bindGroup, 0, NULL);
+        wgpuRenderPassEncoderDraw(renderState.renderPass, 6, 1, 0, 0);
+        wgpuRenderPassEncoderSetBindGroup(renderState.renderPass, 0, bindGroup2, 0, NULL);
+        wgpuRenderPassEncoderDraw(renderState.renderPass, 3, 1, 6, 0);
         
         // End render pass
         end_render_pass(renderState);
