@@ -183,7 +183,7 @@ bool get_next_texture_view(WGPUSurface const surface, WGPUSurfaceTexture *surfac
     if (surface_texture->status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal) {
         return false;
     }
-    WGPUTextureViewDescriptor view_desc;
+    WGPUTextureViewDescriptor view_desc = {};
     view_desc.nextInChain = NULL;
     view_desc.format = wgpuTextureGetFormat(surface_texture->texture);
     view_desc.dimension = WGPUTextureViewDimension_2D;
@@ -211,7 +211,7 @@ void initialize(
     SDL_Init(SDL_INIT_VIDEO);
     *window = SDL_CreateWindow("a", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_METAL);
     *metal_view = SDL_Metal_CreateView(*window);
-    void* metal_layer = SDL_Metal_GetLayer(metal_view);
+    void* metal_layer = SDL_Metal_GetLayer(*metal_view);
 
     // create instance
     WGPUInstanceDescriptor instance_desc = {};
@@ -313,6 +313,18 @@ void initialize(
     WGPURenderPipelineDescriptor pipeline_desc = {};
     pipeline_desc.nextInChain = NULL;
     // vertex
+    WGPUVertexAttribute vertex_attributes[2];
+    vertex_attributes[0].format = WGPUVertexFormat_Float32x3;
+    vertex_attributes[0].offset = 0;
+    vertex_attributes[0].shaderLocation = 0;
+    vertex_attributes[1].format = WGPUVertexFormat_Float32x3;
+    vertex_attributes[1].offset = 3 * sizeof(float);
+    vertex_attributes[1].shaderLocation = 1;
+    WGPUVertexBufferLayout vertex_buffer_layout = {};
+    vertex_buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_buffer_layout.arrayStride = 6 * sizeof(float);
+    vertex_buffer_layout.attributeCount = 2;
+    vertex_buffer_layout.attributes = vertex_attributes;
     pipeline_desc.vertex.bufferCount = 0;
     pipeline_desc.vertex.buffers = NULL;
     pipeline_desc.vertex.module = vertex_shader_module;
@@ -322,6 +334,8 @@ void initialize(
     pipeline_desc.vertex.entryPoint = vertex_entry_point;
     pipeline_desc.vertex.constantCount = 0;
     pipeline_desc.vertex.constants = NULL;
+    pipeline_desc.vertex.bufferCount = 1;
+    pipeline_desc.vertex.buffers = &vertex_buffer_layout;
     // primitive
     pipeline_desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pipeline_desc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
@@ -363,7 +377,7 @@ void initialize(
     wgpuShaderModuleRelease(fragment_shader_module);
 }
 
-void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline, WGPUQueue queue) {
+void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline, WGPUQueue queue, WGPUBuffer vertex_buffer, size_t vertex_buffer_size) {
         WGPUCommandEncoderDescriptor encoder_desc = {};
         encoder_desc.nextInChain = NULL;
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoder_desc);
@@ -389,6 +403,7 @@ void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline,
 
         WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_desc);
         wgpuRenderPassEncoderSetPipeline(render_pass, pipeline);
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, vertex_buffer, 0, vertex_buffer_size);
         wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(render_pass);
         wgpuRenderPassEncoderRelease(render_pass);
@@ -438,6 +453,21 @@ int main() {
 
     initialize(&window, &metal_view, &instance, &adapter, &device, &surface, &pipeline, &queue);
 
+    const float vertices[] = {
+		0.0f,  0.5f,  1.0f, 1.0f, 0.0f, 1.0f,
+		-0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f,
+		0.5f,  -0.5f, 1.0f, 1.0f, 1.0f, 0.0f
+    };
+
+    WGPUBufferDescriptor vertex_buffer_desc = {};
+    vertex_buffer_desc.nextInChain = NULL;
+    vertex_buffer_desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+    vertex_buffer_desc.size = sizeof(vertices);
+    vertex_buffer_desc.mappedAtCreation = false;
+    WGPUBuffer vertex_buffer = wgpuDeviceCreateBuffer(device, &vertex_buffer_desc);
+
+    wgpuQueueWriteBuffer(queue, vertex_buffer, 0, vertices, sizeof(vertices));
+
     bool running = true;
     while (running) {
         SDL_Event e;
@@ -445,7 +475,7 @@ int main() {
             if (e.type == SDL_EVENT_QUIT) running = false;
         }
 
-        render(device, surface, pipeline, queue);
+        render(device, surface, pipeline, queue, vertex_buffer, sizeof(vertices));
     }
 
     terminate(window, metal_view, instance, adapter, device, surface, pipeline, queue);
