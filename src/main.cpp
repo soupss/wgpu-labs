@@ -7,35 +7,64 @@
 #include <cassert>
 #include <vector>
 
+#define PATH_VERTEX_SHADER "build/vert.spv"
+#define PATH_FRAGMENT_SHADER "build/frag.spv"
+
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
 #define WEBGPU_STR(str) (WGPUStringView){.data = str, .length = sizeof(str) - 1}
-// We embbed the source of the shader module here
-const char *shaderSource = R"(
-@vertex
-fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f {
-	var p = vec2f(0.0, 0.0);
-	if (in_vertex_index == 0u) {
-		p = vec2f(-0.5, -0.5);
-	} else if (in_vertex_index == 1u) {
-		p = vec2f(0.5, -0.5);
-	} else {
-		p = vec2f(0.0, 0.5);
-	}
-	return vec4f(p, 0.0, 1.0);
-}
-
-@fragment
-fn fs_main() -> @location(0) vec4f {
-	return vec4f(0.0, 0.4, 1.0, 1.0);
-}
-)";
 
 typedef struct AdapterRequestState
 {
     WGPUAdapter adapter = NULL;
     bool request_ended = false;
 } AdapterRequestState;
+
+void load_spirv(const char* path, uint32_t** out_data, size_t* out_word_count) {
+    *out_data = NULL;
+    if (out_word_count) {
+        *out_word_count = 0;
+    }
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Failed to open %s\n", path);
+        return;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fprintf(stderr, "Failed to seek %s\n", path);
+        fclose(f);
+        return;
+    }
+    long size = ftell(f);
+    if (size < 0 || size % 4 != 0) {
+        fprintf(stderr, "Bad SPIR-V file size for %s\n", path);
+        fclose(f);
+        return;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "Failed to rewind %s\n", path);
+        fclose(f);
+        return;
+    }
+    uint32_t* data = (uint32_t*)malloc((size_t)size);
+    if (!data) {
+        fprintf(stderr, "Out of memory reading %s\n", path);
+        fclose(f);
+        return;
+    }
+    if (fread(data, 1, (size_t)size, f) != (size_t)size) {
+        fprintf(stderr, "Failed to read %s\n", path);
+        free(data);
+        fclose(f);
+        return;
+    }
+    fclose(f);
+    *out_data = data;
+    if (out_word_count) {
+        *out_word_count = (size_t)size / 4;
+    }
+}
+
 
 void print_adapter_info(WGPUAdapter adapter)
 {
@@ -279,7 +308,7 @@ void configure_surface(WGPUSurface *surface, WGPUDevice *device, WGPUAdapter ada
     wgpuSurfaceConfigure(*surface, &surface_config);
 }
 
-void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView)
+void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView, WGPURenderPipeline *pipeline)
 {
     WGPUQueue queue = wgpuDeviceGetQueue(device);
 
@@ -305,6 +334,14 @@ void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView)
     // RENDER PASSS
     //
     WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
+
+
+    // Select which render pipeline to use
+    wgpuRenderPassEncoderSetPipeline(renderPass, *pipeline);
+    // Draw 1 instance of a 3-vertices shape
+    wgpuRenderPassEncoderDraw(renderPass, 3, 1, 0, 0);
+
+
     wgpuRenderPassEncoderEnd(renderPass);
     //
     // RENDER PASSS
@@ -322,11 +359,33 @@ void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView)
 
 void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
 {
-
-    WGPUShaderModuleDescriptor shaderDesc{};
-
+    size_t vertex_shader_words = 0;
+    uint32_t *vertex_shader_source = NULL;
     
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(*device, &shaderDesc);
+    load_spirv(PATH_VERTEX_SHADER, &vertex_shader_source, &vertex_shader_words);
+    WGPUShaderSourceSPIRV vertex_shader_spirv = {};
+    vertex_shader_spirv.chain.next = NULL;
+    vertex_shader_spirv.chain.sType = WGPUSType_ShaderSourceSPIRV;
+    vertex_shader_spirv.codeSize = vertex_shader_words;
+    vertex_shader_spirv.code = vertex_shader_source;
+    WGPUShaderModuleDescriptor vertex_shader_desc = {};
+    vertex_shader_desc.nextInChain = &vertex_shader_spirv.chain;
+    WGPUShaderModule vertex_shader_module = wgpuDeviceCreateShaderModule(*device, &vertex_shader_desc);
+    free(vertex_shader_source);
+
+    size_t fragment_shader_words = 0;
+    uint32_t *fragment_shader_source = NULL;
+    load_spirv(PATH_FRAGMENT_SHADER, &fragment_shader_source, &fragment_shader_words);
+    WGPUShaderSourceSPIRV fragment_shader_spirv = {};
+    fragment_shader_spirv.chain.next = NULL;
+    fragment_shader_spirv.chain.sType = WGPUSType_ShaderSourceSPIRV;
+    fragment_shader_spirv.codeSize = fragment_shader_words;
+    fragment_shader_spirv.code = fragment_shader_source;
+    WGPUShaderModuleDescriptor fragment_shader_desc = {};
+    fragment_shader_desc.nextInChain = &fragment_shader_spirv.chain;
+    WGPUShaderModule fragment_shader_module = wgpuDeviceCreateShaderModule(*device, &fragment_shader_desc);
+    free(fragment_shader_source);
+    WGPUShaderModuleDescriptor shaderDesc{};
 
     WGPURenderPipelineDescriptor pipelineDesc{};
     pipelineDesc.nextInChain = NULL;
@@ -335,7 +394,7 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     // [...] Describe vertex pipeline state
     pipelineDesc.vertex.bufferCount = 0;
     pipelineDesc.vertex.buffers = NULL;
-    pipelineDesc.vertex.module = shaderModule;
+    pipelineDesc.vertex.module = vertex_shader_module;
     pipelineDesc.vertex.entryPoint = WEBGPU_STR("vs_main");
     pipelineDesc.vertex.constantCount = 0;
     pipelineDesc.vertex.constants = NULL;
@@ -352,7 +411,7 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     
     // [...] Describe fragment pipeline state
     WGPUFragmentState fragmentState{};
-    fragmentState.module = shaderModule;
+    fragmentState.module = fragment_shader_module;
     fragmentState.entryPoint = WEBGPU_STR("fs_main");
     fragmentState.constantCount = 0;
     fragmentState.constants = nullptr;
@@ -384,7 +443,11 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     // Default value as well (irrelevant for count = 1 anyways)
     pipelineDesc.multisample.alphaToCoverageEnabled = false;
 
+    pipelineDesc.layout = NULL;
     *pipeline = wgpuDeviceCreateRenderPipeline(*device, &pipelineDesc);
+
+    wgpuShaderModuleRelease(vertex_shader_module);
+    wgpuShaderModuleRelease(fragment_shader_module);
 }
 
 void initialize(
@@ -435,7 +498,7 @@ int main()
         WGPUSurfaceTexture surfaceTexture;
         get_next_surface_texture_view(&surface, &targetView, &surfaceTexture);
 
-        render_pass_type_shit(device, targetView);
+        render_pass_type_shit(device, targetView, &pipeline);
 
         wgpuSurfacePresent(surface);
         // Release texture after presenting surface
