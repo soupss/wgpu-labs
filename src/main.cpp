@@ -1,13 +1,18 @@
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_wgpu.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <webgpu.h>
 #include <SDL3/SDL.h>
 
-#define WINDOW_WIDTH 800
-#define WINDOW_HEIGHT 600
-
 #define PATH_VERTEX_SHADER "build/vert.spv"
 #define PATH_FRAGMENT_SHADER "build/frag.spv"
+
+#define WINDOW_WIDTH 1200
+#define WINDOW_HEIGHT 800
+
+float clear_color[3] = { 0.2f, 0.2f, 0.8f };
+float triangle_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f};
 
 void load_spirv(const char* path, uint32_t** out_data, size_t* out_word_count) {
     *out_data = NULL;
@@ -205,7 +210,11 @@ void initialize(
     WGPUDevice *device,
     WGPUSurface *surface,
     WGPURenderPipeline *pipeline,
-    WGPUQueue *queue)
+    WGPUQueue *queue,
+    WGPUBuffer *uniform_buffer,
+    WGPUBindGroup *bind_group,
+    WGPUBuffer *uniform_buffer2,
+    WGPUBindGroup *bind_group2)
 {
     // create window
     SDL_Init(SDL_INIT_VIDEO);
@@ -284,6 +293,64 @@ void initialize(
 
     *queue = wgpuDeviceGetQueue(*device);
 
+
+    WGPUBufferDescriptor uniform_buffer_desc = {};
+    uniform_buffer_desc.nextInChain = NULL;
+    uniform_buffer_desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    uniform_buffer_desc.size = sizeof(triangle_color);
+    uniform_buffer_desc.mappedAtCreation = false;
+    *uniform_buffer = wgpuDeviceCreateBuffer(*device, &uniform_buffer_desc);
+
+    WGPUBufferDescriptor uniform_buffer2_desc = {};
+    uniform_buffer2_desc.nextInChain = NULL;
+    uniform_buffer2_desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    uniform_buffer2_desc.size = sizeof(triangle_color);
+    uniform_buffer2_desc.mappedAtCreation = false;
+    *uniform_buffer2 = wgpuDeviceCreateBuffer(*device, &uniform_buffer2_desc);
+
+    WGPUBindGroupLayoutEntry bind_group_layout_entry = {};
+    bind_group_layout_entry.binding = 0;
+    bind_group_layout_entry.visibility = WGPUShaderStage_Fragment;
+    bind_group_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
+
+    WGPUBindGroupLayoutDescriptor bind_group_layout_desc = {};
+    bind_group_layout_desc.nextInChain = NULL;
+    bind_group_layout_desc.entryCount = 1;
+    bind_group_layout_desc.entries = &bind_group_layout_entry;
+    WGPUBindGroupLayout bind_group_layout = wgpuDeviceCreateBindGroupLayout(*device, &bind_group_layout_desc);
+
+    WGPUPipelineLayoutDescriptor pipeline_layout_desc = {};
+    pipeline_layout_desc.nextInChain = NULL;
+    pipeline_layout_desc.bindGroupLayoutCount = 1;
+    pipeline_layout_desc.bindGroupLayouts = &bind_group_layout;
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(*device, &pipeline_layout_desc);
+
+    WGPUBindGroupEntry bind_group_entry = {};
+    bind_group_entry.binding = 0;
+    bind_group_entry.buffer = *uniform_buffer;
+    bind_group_entry.offset = 0;
+    bind_group_entry.size = sizeof(triangle_color);
+
+    WGPUBindGroupDescriptor bind_group_desc = {};
+    bind_group_desc.nextInChain = NULL;
+    bind_group_desc.layout = bind_group_layout;
+    bind_group_desc.entryCount = 1;
+    bind_group_desc.entries = &bind_group_entry;
+    *bind_group = wgpuDeviceCreateBindGroup(*device, &bind_group_desc);
+
+    WGPUBindGroupEntry bind_group2_entry = {};
+    bind_group2_entry.binding = 0;
+    bind_group2_entry.buffer = *uniform_buffer2;
+    bind_group2_entry.offset = 0;
+    bind_group2_entry.size = sizeof(triangle_color);
+
+    WGPUBindGroupDescriptor bind_group2_desc = {};
+    bind_group2_desc.nextInChain = NULL;
+    bind_group2_desc.layout = bind_group_layout;
+    bind_group2_desc.entryCount = 1;
+    bind_group2_desc.entries = &bind_group2_entry;
+    *bind_group2 = wgpuDeviceCreateBindGroup(*device, &bind_group2_desc);
+
     size_t vertex_shader_words = 0;
     uint32_t *vertex_shader_source = NULL;;
     load_spirv(PATH_VERTEX_SHADER, &vertex_shader_source, &vertex_shader_words);
@@ -320,14 +387,13 @@ void initialize(
     vertex_attributes[1].format = WGPUVertexFormat_Float32x3;
     vertex_attributes[1].offset = 3 * sizeof(float);
     vertex_attributes[1].shaderLocation = 1;
+
     WGPUVertexBufferLayout vertex_buffer_layout = {};
     vertex_buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
     vertex_buffer_layout.arrayStride = 6 * sizeof(float);
     vertex_buffer_layout.attributeCount = 2;
     vertex_buffer_layout.attributes = vertex_attributes;
-    pipeline_desc.vertex.bufferCount = 0;
-    pipeline_desc.vertex.buffers = NULL;
-    pipeline_desc.vertex.module = vertex_shader_module;
+
     WGPUStringView vertex_entry_point = {};
     vertex_entry_point.data = "main";
     vertex_entry_point.length = WGPU_STRLEN;
@@ -336,6 +402,8 @@ void initialize(
     pipeline_desc.vertex.constants = NULL;
     pipeline_desc.vertex.bufferCount = 1;
     pipeline_desc.vertex.buffers = &vertex_buffer_layout;
+    pipeline_desc.vertex.module = vertex_shader_module;
+
     // primitive
     pipeline_desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pipeline_desc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
@@ -370,14 +438,24 @@ void initialize(
     pipeline_desc.multisample.count = 1;
     pipeline_desc.multisample.mask = ~0u;
     pipeline_desc.multisample.alphaToCoverageEnabled = false;
-    pipeline_desc.layout = NULL;
+    pipeline_desc.layout = pipeline_layout;
+
     *pipeline = wgpuDeviceCreateRenderPipeline(*device, &pipeline_desc);
+
+    ImGui::CreateContext();
+    ImGui_ImplSDL3_InitForMetal(*window);
+    ImGui_ImplWGPU_InitInfo imgui_init = {};
+    imgui_init.Device = *device;
+    imgui_init.NumFramesInFlight = 3;
+    imgui_init.RenderTargetFormat = surface_format;
+    imgui_init.DepthStencilFormat = WGPUTextureFormat_Undefined;
+    ImGui_ImplWGPU_Init(&imgui_init);
 
     wgpuShaderModuleRelease(vertex_shader_module);
     wgpuShaderModuleRelease(fragment_shader_module);
 }
 
-void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline, WGPUQueue queue, WGPUBuffer vertex_buffer, size_t vertex_buffer_size) {
+void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline, WGPUQueue queue, WGPUBuffer vertex_buffer, size_t vertex_buffer_size, WGPUBuffer vertex_buffer2, size_t vertex_buffer2_size, WGPUBindGroup bind_group, WGPUBindGroup bind_group2) {
         WGPUCommandEncoderDescriptor encoder_desc = {};
         encoder_desc.nextInChain = NULL;
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoder_desc);
@@ -394,7 +472,9 @@ void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline,
         render_pass_color_attachment.loadOp = WGPULoadOp_Clear;
         render_pass_color_attachment.storeOp = WGPUStoreOp_Store;
         render_pass_color_attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-        render_pass_color_attachment.clearValue = WGPUColor{0.1, 0.8, 0.2, 1.0};
+        render_pass_color_attachment.clearValue = WGPUColor{
+            clear_color[0], clear_color[1], clear_color[2], 1.0
+        };
 
         WGPURenderPassDescriptor render_pass_desc = {};
         render_pass_desc.nextInChain = NULL;
@@ -403,8 +483,17 @@ void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline,
 
         WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_desc);
         wgpuRenderPassEncoderSetPipeline(render_pass, pipeline);
+
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, vertex_buffer, 0, vertex_buffer_size);
+        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, bind_group, 0, NULL);
+        wgpuRenderPassEncoderDraw(render_pass, 6, 1, 0, 0);
+
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, vertex_buffer2, 0, vertex_buffer2_size);
+        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, bind_group2, 0, NULL);
         wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
+
+        ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
+
         wgpuRenderPassEncoderEnd(render_pass);
         wgpuRenderPassEncoderRelease(render_pass);
 
@@ -431,6 +520,9 @@ void terminate(
     WGPURenderPipeline pipeline,
     WGPUQueue queue)
 {
+    ImGui_ImplWGPU_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
     SDL_Metal_DestroyView(metal_view);
     SDL_DestroyWindow(window);
     SDL_Quit();
@@ -438,6 +530,13 @@ void terminate(
     wgpuDeviceRelease(device);
     wgpuInstanceRelease(instance);
     wgpuRenderPipelineRelease(pipeline);
+}
+
+void gui() {
+	ImGui::ColorEdit3("clear color", clear_color);
+	ImGui::ColorEdit3("triangle color", triangle_color);
+    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate,
+            ImGui::GetIO().Framerate);
 }
 
 int main() {
@@ -450,13 +549,20 @@ int main() {
     WGPUSurface surface = NULL;
     WGPURenderPipeline pipeline = NULL;
     WGPUQueue queue = NULL;
+    WGPUBuffer uniform_buffer = NULL;
+    WGPUBindGroup bind_group = NULL;
+    WGPUBuffer uniform_buffer2 = NULL;
+    WGPUBindGroup bind_group2 = NULL;
 
-    initialize(&window, &metal_view, &instance, &adapter, &device, &surface, &pipeline, &queue);
+    initialize(&window, &metal_view, &instance, &adapter, &device, &surface, &pipeline, &queue, &uniform_buffer, &bind_group, &uniform_buffer2, &bind_group2);
 
     const float vertices[] = {
-		0.0f,  0.5f,  1.0f, 1.0f, 0.0f, 1.0f,
-		-0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f,
-		0.5f,  -0.5f, 1.0f, 1.0f, 1.0f, 0.0f
+        0.0f,  0.6f,   1.0f, 0.0f, 1.0f, 0.0f,
+        0.5f,  0.9f,   1.0f, 0.0f, 0.0f, 0.2f,
+        -0.5f, 0.8f,   1.0f, 0.0f, 0.0f, 0.2f,
+        0.0f,  0.55f,  1.0f, 1.0f, 0.0f, 0.0f,
+        0.5f,  0.8f,   1.0f, 1.0f, 1.0f, 0.0f,
+        0.5f,  -0.45f, 1.0f, 0.0f, 1.0f, 1.0f
     };
 
     WGPUBufferDescriptor vertex_buffer_desc = {};
@@ -466,16 +572,39 @@ int main() {
     vertex_buffer_desc.mappedAtCreation = false;
     WGPUBuffer vertex_buffer = wgpuDeviceCreateBuffer(device, &vertex_buffer_desc);
 
+    const float vertices2[] = {
+        0.0f,  0.5f,  1.0f, 1.0f, 1.0f, 1.0f,
+        -0.5f, -0.5f, 1.0f, 1.0f, 1.0f, 1.0f,
+        0.5f,  -0.5f, 1.0f, 1.0f, 1.0f, 1.0f
+    };
+
+    WGPUBufferDescriptor vertex_buffer2_desc = {};
+    vertex_buffer2_desc.nextInChain = NULL;
+    vertex_buffer2_desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+    vertex_buffer2_desc.size = sizeof(vertices2);
+    vertex_buffer2_desc.mappedAtCreation = false;
+    WGPUBuffer vertex_buffer2 = wgpuDeviceCreateBuffer(device, &vertex_buffer2_desc);
+
     wgpuQueueWriteBuffer(queue, vertex_buffer, 0, vertices, sizeof(vertices));
+    wgpuQueueWriteBuffer(queue, vertex_buffer2, 0, vertices2, sizeof(vertices2));
+    wgpuQueueWriteBuffer(queue, uniform_buffer, 0, &triangle_color, sizeof(triangle_color));
 
     bool running = true;
     while (running) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = false;
+            ImGui_ImplSDL3_ProcessEvent(&e);
         }
 
-        render(device, surface, pipeline, queue, vertex_buffer, sizeof(vertices));
+        ImGui_ImplSDL3_NewFrame();
+        ImGui_ImplWGPU_NewFrame();
+        ImGui::NewFrame();
+        gui();
+        ImGui::Render();
+        wgpuQueueWriteBuffer(queue, uniform_buffer2, 0, &triangle_color, sizeof(triangle_color));
+
+        render(device, surface, pipeline, queue, vertex_buffer, sizeof(vertices), vertex_buffer2, sizeof(vertices2), bind_group, bind_group2);
     }
 
     terminate(window, metal_view, instance, adapter, device, surface, pipeline, queue);
