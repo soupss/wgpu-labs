@@ -355,6 +355,27 @@ void end_render_pass(RenderPassState state)
     wgpuCommandBufferRelease(command);
 }
 
+WGPUVertexBufferLayout * get_vertex_buffer_layouts() {
+    WGPUVertexAttribute vertex_attributes[2];
+    vertex_attributes[0].format = WGPUVertexFormat_Float32x3;
+    vertex_attributes[0].offset = 0;
+    vertex_attributes[0].shaderLocation = 0;
+    vertex_attributes[1].format = WGPUVertexFormat_Float32x3;
+    vertex_attributes[1].offset = 3 * sizeof(float);
+    vertex_attributes[1].shaderLocation = 1;
+    
+    WGPUVertexBufferLayout vertex_buffer_layout = {};
+    vertex_buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_buffer_layout.arrayStride = 6 * sizeof(float);
+    vertex_buffer_layout.attributeCount = 2;
+    vertex_buffer_layout.attributes = vertex_attributes;
+
+    WGPUVertexBufferLayout* out = (WGPUVertexBufferLayout*) malloc(sizeof(WGPUVertexBufferLayout));
+    *out = vertex_buffer_layout;
+    return out;
+
+}
+
 void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device, WGPUSurfaceCapabilities surface_capabilities)
 {
     
@@ -392,14 +413,29 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device, WGPUS
     WGPURenderPipelineDescriptor pipelineDesc{};
     pipelineDesc.nextInChain = NULL;
 
+    // vertex
+    
+    // WGPUVertexBufferLayout * vertex_buffer_layouts = get_vertex_buffer_layouts();
+    WGPUVertexAttribute vertex_attributes[2];
+    vertex_attributes[0].format = WGPUVertexFormat_Float32x3;
+    vertex_attributes[0].offset = 0;
+    vertex_attributes[0].shaderLocation = 0;
+    vertex_attributes[1].format = WGPUVertexFormat_Float32x3;
+    vertex_attributes[1].offset = 3 * sizeof(float);
+    vertex_attributes[1].shaderLocation = 1;
+    
+    WGPUVertexBufferLayout vertex_buffer_layout = {};
+    vertex_buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
+    vertex_buffer_layout.arrayStride = 6 * sizeof(float);
+    vertex_buffer_layout.attributeCount = 2;
+    vertex_buffer_layout.attributes = vertex_attributes;
 
-    // [...] Describe vertex pipeline state
-    pipelineDesc.vertex.bufferCount = 1;
-    pipelineDesc.vertex.buffers = NULL;
     pipelineDesc.vertex.module = vertex_shader_module;
     pipelineDesc.vertex.entryPoint = WEBGPU_STR("main");
     pipelineDesc.vertex.constantCount = 0;
     pipelineDesc.vertex.constants = NULL;
+    pipelineDesc.vertex.bufferCount = 1;
+    pipelineDesc.vertex.buffers = &vertex_buffer_layout;
 
 
     // [...] Describe primitive pipeline state
@@ -486,6 +522,8 @@ void initialize(
     wgpuAdapterRelease(adapter);
 
     initialize_pipeline(pipeline, device,surface_capabilities);
+
+    *queue = wgpuDeviceGetQueue(*device);
 }
 
 int main()
