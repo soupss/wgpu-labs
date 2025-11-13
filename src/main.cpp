@@ -9,61 +9,55 @@
 #define PATH_VERTEX_SHADER "build/vert.spv"
 #define PATH_FRAGMENT_SHADER "build/frag.spv"
 
-#include <stdint.h> // for uint32_t
-
-uint32_t* load_spirv(const char* path, size_t* word_count_out) {
+void load_spirv(const char* path, uint32_t** out_data, size_t* out_word_count) {
+    *out_data = NULL;
+    if (out_word_count) {
+        *out_word_count = 0;
+    }
     FILE* f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "Failed to open %s\n", path);
-        return NULL;
+        return;
     }
     if (fseek(f, 0, SEEK_END) != 0) {
         fprintf(stderr, "Failed to seek %s\n", path);
         fclose(f);
-        return NULL;
+        return;
     }
     long size = ftell(f);
     if (size < 0 || size % 4 != 0) {
         fprintf(stderr, "Bad SPIR-V file size for %s\n", path);
         fclose(f);
-        return NULL;
+        return;
     }
     if (fseek(f, 0, SEEK_SET) != 0) {
         fprintf(stderr, "Failed to rewind %s\n", path);
         fclose(f);
-        return NULL;
+        return;
     }
     uint32_t* data = (uint32_t*)malloc((size_t)size);
     if (!data) {
         fprintf(stderr, "Out of memory reading %s\n", path);
         fclose(f);
-        return NULL;
+        return;
     }
     if (fread(data, 1, (size_t)size, f) != (size_t)size) {
         fprintf(stderr, "Failed to read %s\n", path);
         free(data);
         fclose(f);
-        return NULL;
+        return;
     }
     fclose(f);
-    *word_count_out = (size_t)size / 4;
-    return data;
-}
-
-WGPUTextureFormat get_surface_format_first(WGPUSurface const surface, WGPUAdapter const adapter) {
-    WGPUSurfaceCapabilities surface_capabilities = {};
-    wgpuSurfaceGetCapabilities(surface, adapter, &surface_capabilities);
-    WGPUTextureFormat surface_format = WGPUTextureFormat_Undefined;
-    if (surface_capabilities.formatCount > 0) {
-        surface_format = surface_capabilities.formats[0];
+    *out_data = data;
+    if (out_word_count) {
+        *out_word_count = (size_t)size / 4;
     }
-    return surface_format;
 }
 
-typedef struct AdapterRequestState {
+typedef struct AdapterRequest {
     WGPUAdapter *adapter = NULL;
     bool request_ended = false;
-} AdapterRequestState;
+} AdapterRequest;
 
 void print_adapter_info(WGPUAdapter adapter) {
     // Adapter info
@@ -114,7 +108,7 @@ void on_adapter_request_ended(
     void *userdata1,
     void *userdata2)
 {
-    AdapterRequestState *state = (AdapterRequestState*)userdata1;
+    AdapterRequest *state = (AdapterRequest*)userdata1;
     *(state->adapter) = adapter;
     state->request_ended = true;
 
@@ -129,10 +123,10 @@ void on_adapter_request_ended(
     }
 }
 
-typedef struct DeviceRequestState {
+typedef struct DeviceRequest {
     WGPUDevice *device = NULL;
     bool request_ended = false;
-} DeviceRequestState;
+} DeviceRequest;
 
 void print_device_info(WGPUDevice device) {
     // --- Device features
@@ -169,7 +163,7 @@ void on_device_request_ended(
     void *userdata1,
     void *userdata2)
 {
-    DeviceRequestState *device_request_state = (DeviceRequestState*)userdata1;
+    DeviceRequest *device_request_state = (DeviceRequest*)userdata1;
     *(device_request_state->device) = device;
     device_request_state->request_ended = true;
     if (status == WGPURequestDeviceStatus_Success) {
@@ -183,17 +177,40 @@ void on_device_request_ended(
     }
 }
 
+bool get_next_texture_view(WGPUSurface const surface, WGPUSurfaceTexture *surface_texture, WGPUTextureView *texture_view) {
+    *texture_view = NULL;
+    wgpuSurfaceGetCurrentTexture(surface, surface_texture);
+    if (surface_texture->status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal) {
+        return false;
+    }
+    WGPUTextureViewDescriptor view_desc;
+    view_desc.nextInChain = NULL;
+    view_desc.format = wgpuTextureGetFormat(surface_texture->texture);
+    view_desc.dimension = WGPUTextureViewDimension_2D;
+    view_desc.baseMipLevel = 0;
+    view_desc.mipLevelCount = 1;
+    view_desc.baseArrayLayer = 0;
+    view_desc.arrayLayerCount = 1;
+    view_desc.aspect = WGPUTextureAspect_All;
+    view_desc.usage = WGPUTextureUsage_RenderAttachment;
+    *texture_view = wgpuTextureCreateView(surface_texture->texture, &view_desc);
+    return true;
+}
+
 void initialize(
     SDL_Window **window,
+    SDL_MetalView *metal_view,
     WGPUInstance *instance,
     WGPUAdapter *adapter,
     WGPUDevice *device,
-    WGPUSurface *surface)
+    WGPUSurface *surface,
+    WGPURenderPipeline *pipeline,
+    WGPUQueue *queue)
 {
     // create window
     SDL_Init(SDL_INIT_VIDEO);
     *window = SDL_CreateWindow("a", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_METAL);
-    SDL_MetalView metal_view = SDL_Metal_CreateView(*window);
+    *metal_view = SDL_Metal_CreateView(*window);
     void* metal_layer = SDL_Metal_GetLayer(metal_view);
 
     // create instance
@@ -211,7 +228,7 @@ void initialize(
     *surface = wgpuInstanceCreateSurface(*instance, &surface_desc);
 
     // get adapter
-    AdapterRequestState adapter_request_state;
+    AdapterRequest adapter_request_state = {};
     adapter_request_state.adapter = adapter;
     WGPURequestAdapterCallbackInfo adapter_callback_info = {};
     adapter_callback_info.callback = on_adapter_request_ended;
@@ -227,7 +244,7 @@ void initialize(
     }
 
     // get device
-    DeviceRequestState device_request_state;
+    DeviceRequest device_request_state = {};
     device_request_state.device = device;
     WGPUDeviceDescriptor device_desc = {};
     device_desc.nextInChain = NULL;
@@ -248,7 +265,14 @@ void initialize(
     surface_config.nextInChain = NULL;
     surface_config.width = WINDOW_WIDTH;
     surface_config.height = WINDOW_HEIGHT;
-    WGPUTextureFormat surface_format = get_surface_format_first(*surface, *adapter);
+
+    WGPUSurfaceCapabilities surface_capabilities = {};
+    wgpuSurfaceGetCapabilities(*surface, *adapter, &surface_capabilities);
+    WGPUTextureFormat surface_format = WGPUTextureFormat_Undefined;
+    if (surface_capabilities.formatCount > 0) {
+        surface_format = surface_capabilities.formats[0];
+    }
+    wgpuSurfaceCapabilitiesFreeMembers(surface_capabilities);
     surface_config.format = surface_format;
     surface_config.viewFormatCount = 0;
     surface_config.viewFormats = NULL;
@@ -257,42 +281,12 @@ void initialize(
     surface_config.presentMode = WGPUPresentMode_Fifo;
     surface_config.alphaMode = WGPUCompositeAlphaMode_Auto;
     wgpuSurfaceConfigure(*surface, &surface_config);
-}
 
-void get_next_texture_view(WGPUSurface const surface, WGPUSurfaceTexture *surface_texture, WGPUTextureView *texture_view) {
-    *texture_view = NULL;
-    wgpuSurfaceGetCurrentTexture(surface, surface_texture);
-    if (surface_texture->status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal) {
-        return;
-    }
-
-    WGPUTextureViewDescriptor view_desc;
-    view_desc.nextInChain = NULL;
-    view_desc.format = wgpuTextureGetFormat(surface_texture->texture);
-    view_desc.dimension = WGPUTextureViewDimension_2D;
-    view_desc.baseMipLevel = 0;
-    view_desc.mipLevelCount = 1;
-    view_desc.baseArrayLayer = 0;
-    view_desc.arrayLayerCount = 1;
-    view_desc.aspect = WGPUTextureAspect_All;
-    view_desc.usage = WGPUTextureUsage_RenderAttachment;
-    *texture_view = wgpuTextureCreateView(surface_texture->texture, &view_desc);
-}
-
-int main() {
-    SDL_Window *window = NULL;
-    WGPUAdapter adapter = NULL;
-    WGPUDevice device = NULL;
-    WGPUInstance instance = NULL;
-    WGPUSurface surface = NULL;
-
-    initialize(&window, &instance, &adapter, &device, &surface);
-
-    WGPUQueue queue = wgpuDeviceGetQueue(device);
+    *queue = wgpuDeviceGetQueue(*device);
 
     size_t vertex_shader_words = 0;
     uint32_t *vertex_shader_source = NULL;;
-    vertex_shader_source = load_spirv(PATH_VERTEX_SHADER, &vertex_shader_words);
+    load_spirv(PATH_VERTEX_SHADER, &vertex_shader_source, &vertex_shader_words);
     WGPUShaderSourceSPIRV vertex_shader_spirv = {};
     vertex_shader_spirv.chain.next = NULL;
     vertex_shader_spirv.chain.sType = WGPUSType_ShaderSourceSPIRV;
@@ -300,10 +294,12 @@ int main() {
     vertex_shader_spirv.code = vertex_shader_source;
     WGPUShaderModuleDescriptor vertex_shader_desc = {};
     vertex_shader_desc.nextInChain = &vertex_shader_spirv.chain;
-    WGPUShaderModule vertex_shader_module = wgpuDeviceCreateShaderModule(device, &vertex_shader_desc);
+    WGPUShaderModule vertex_shader_module = wgpuDeviceCreateShaderModule(*device, &vertex_shader_desc);
+    free(vertex_shader_source);
 
     size_t fragment_shader_words = 0;
-    uint32_t *fragment_shader_source = load_spirv(PATH_FRAGMENT_SHADER, &fragment_shader_words);
+    uint32_t *fragment_shader_source = NULL;
+    load_spirv(PATH_FRAGMENT_SHADER, &fragment_shader_source, &fragment_shader_words);
     WGPUShaderSourceSPIRV fragment_shader_spirv = {};
     fragment_shader_spirv.chain.next = NULL;
     fragment_shader_spirv.chain.sType = WGPUSType_ShaderSourceSPIRV;
@@ -311,9 +307,9 @@ int main() {
     fragment_shader_spirv.code = fragment_shader_source;
     WGPUShaderModuleDescriptor fragment_shader_desc = {};
     fragment_shader_desc.nextInChain = &fragment_shader_spirv.chain;
-    WGPUShaderModule fragment_shader_module = wgpuDeviceCreateShaderModule(device, &fragment_shader_desc);
+    WGPUShaderModule fragment_shader_module = wgpuDeviceCreateShaderModule(*device, &fragment_shader_desc);
+    free(fragment_shader_source);
 
-    // CONFIGURE PIPELINE
     WGPURenderPipelineDescriptor pipeline_desc = {};
     pipeline_desc.nextInChain = NULL;
     // vertex
@@ -352,7 +348,7 @@ int main() {
     blend_state.alpha.dstFactor = WGPUBlendFactor_One;
     blend_state.alpha.operation = WGPUBlendOperation_Add;
     WGPUColorTargetState color_target = {};
-    color_target.format = get_surface_format_first(surface, adapter);
+    color_target.format = surface_format;
     color_target.blend = &blend_state;
     color_target.writeMask = WGPUColorWriteMask_All;
     fragment_state.targetCount = 1;
@@ -361,26 +357,22 @@ int main() {
     pipeline_desc.multisample.mask = ~0u;
     pipeline_desc.multisample.alphaToCoverageEnabled = false;
     pipeline_desc.layout = NULL;
-    WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(device, &pipeline_desc);
+    *pipeline = wgpuDeviceCreateRenderPipeline(*device, &pipeline_desc);
 
     wgpuShaderModuleRelease(vertex_shader_module);
     wgpuShaderModuleRelease(fragment_shader_module);
+}
 
-    bool running = true;
-    while (running) {
-        // events
-        SDL_Event e;
-        while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_EVENT_QUIT) running = false;
-        }
-
+void render(WGPUDevice device, WGPUSurface surface, WGPURenderPipeline pipeline, WGPUQueue queue) {
         WGPUCommandEncoderDescriptor encoder_desc = {};
         encoder_desc.nextInChain = NULL;
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoder_desc);
 
         WGPUSurfaceTexture surface_texture;
         WGPUTextureView texture_view;
-        get_next_texture_view(surface, &surface_texture, &texture_view);
+        if (!get_next_texture_view(surface, &surface_texture, &texture_view)) {
+            return;
+        }
 
         WGPURenderPassColorAttachment render_pass_color_attachment = {};
         render_pass_color_attachment.view = texture_view;
@@ -412,13 +404,49 @@ int main() {
         wgpuSurfacePresent(surface);
 
         wgpuTextureViewRelease(texture_view);
-    }
+}
 
-    // TODO: unconfigure surface
+void terminate(
+    SDL_Window *window,
+    SDL_MetalView metal_view,
+    WGPUInstance instance,
+    WGPUAdapter adapter,
+    WGPUDevice device,
+    WGPUSurface surface,
+    WGPURenderPipeline pipeline,
+    WGPUQueue queue)
+{
+    SDL_Metal_DestroyView(metal_view);
     SDL_DestroyWindow(window);
     SDL_Quit();
     wgpuAdapterRelease(adapter);
     wgpuDeviceRelease(device);
     wgpuInstanceRelease(instance);
     wgpuRenderPipelineRelease(pipeline);
+}
+
+int main() {
+    // TODO: state type
+    SDL_Window *window = NULL;
+    SDL_MetalView metal_view = NULL;
+    WGPUAdapter adapter = NULL;
+    WGPUDevice device = NULL;
+    WGPUInstance instance = NULL;
+    WGPUSurface surface = NULL;
+    WGPURenderPipeline pipeline = NULL;
+    WGPUQueue queue = NULL;
+
+    initialize(&window, &metal_view, &instance, &adapter, &device, &surface, &pipeline, &queue);
+
+    bool running = true;
+    while (running) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_EVENT_QUIT) running = false;
+        }
+
+        render(device, surface, pipeline, queue);
+    }
+
+    terminate(window, metal_view, instance, adapter, device, surface, pipeline, queue);
 }
