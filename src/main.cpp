@@ -394,7 +394,7 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device, WGPUS
 
 
     // [...] Describe vertex pipeline state
-    pipelineDesc.vertex.bufferCount = 0;
+    pipelineDesc.vertex.bufferCount = 1;
     pipelineDesc.vertex.buffers = NULL;
     pipelineDesc.vertex.module = vertex_shader_module;
     pipelineDesc.vertex.entryPoint = WEBGPU_STR("main");
@@ -498,6 +498,21 @@ int main()
     WGPURenderPipeline pipeline = NULL;
 
     initialize(&window, &device, &instance, &surface, &queue, &pipeline);
+
+    const float vertices[] = {
+		0.0f,  0.5f,  1.0f, 1.0f, 0.0f, 1.0f,
+		-0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f,
+		0.5f,  -0.5f, 1.0f, 1.0f, 1.0f, 0.0f
+    };
+
+    WGPUBufferDescriptor vertex_buffer_desc = {};
+    vertex_buffer_desc.nextInChain = NULL;
+    vertex_buffer_desc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+    vertex_buffer_desc.size = sizeof(vertices);
+    vertex_buffer_desc.mappedAtCreation = false;
+    WGPUBuffer vertex_buffer = wgpuDeviceCreateBuffer(device, &vertex_buffer_desc);
+
+    wgpuQueueWriteBuffer(queue, vertex_buffer, 0, vertices, sizeof(vertices));
 
     bool running = true;
     while (running)
