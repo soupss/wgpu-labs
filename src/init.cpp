@@ -7,14 +7,7 @@
 #include <cassert>
 #include <vector>
 
-#define PATH_VERTEX_SHADER "build/vert.spv"
-#define PATH_FRAGMENT_SHADER "build/frag.spv"
-
-#define WINDOW_WIDTH 800
-#define WINDOW_HEIGHT 600
-#define WEBGPU_STR(str) (WGPUStringView){.data = str, .length = sizeof(str) - 1}
-
-
+#include "constants.cpp"
 
 typedef struct DeviceRequestState
 {
