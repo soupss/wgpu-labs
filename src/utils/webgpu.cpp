@@ -31,10 +31,10 @@ WGPUBindGroup create_bind_group(WGPUDevice device, WGPUBindGroupLayout bind_grou
     return wgpuDeviceCreateBindGroup(device, &bindGroupDesc);
 }
 
-WGPUBuffer create_uniform_buffer(WGPUDevice device, size_t buffer_size) {
+WGPUBuffer create_buffer(WGPUDevice device, size_t buffer_size, WGPUBufferUsage usage) {
     WGPUBufferDescriptor buffer_desc = {};
     buffer_desc.nextInChain = NULL;
-    buffer_desc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
+    buffer_desc.usage = usage;
     buffer_desc.size = buffer_size;
     buffer_desc.mappedAtCreation = false;
     return wgpuDeviceCreateBuffer(device, &buffer_desc);
