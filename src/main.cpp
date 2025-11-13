@@ -306,9 +306,18 @@ void configure_surface(WGPUSurface *surface, WGPUDevice *device, WGPUAdapter ada
     wgpuSurfaceConfigure(*surface, &surface_config);
 }
 
-void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView, WGPURenderPipeline *pipeline)
+// Structure to hold render pass state between begin and end
+typedef struct RenderPassState {
+    WGPUCommandEncoder encoder;
+    WGPURenderPassEncoder renderPass;
+    WGPUQueue queue;
+} RenderPassState;
+
+RenderPassState begin_render_pass(WGPUDevice device, WGPUTextureView targetView)
 {
-    WGPUQueue queue = wgpuDeviceGetQueue(device);
+    RenderPassState state = {};
+    
+    state.queue = wgpuDeviceGetQueue(device);
 
     WGPURenderPassDescriptor renderPassDesc = {};
     renderPassDesc.nextInChain = NULL;
@@ -326,32 +335,23 @@ void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView, WGPURe
     renderPassDesc.colorAttachmentCount = 1;
     renderPassDesc.colorAttachments = &renderPassColorAttachment;
 
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoderDesc);
+    state.encoder = wgpuDeviceCreateCommandEncoder(device, &encoderDesc);
+    state.renderPass = wgpuCommandEncoderBeginRenderPass(state.encoder, &renderPassDesc);
+    
+    return state;
+}
 
-    //
-    // RENDER PASSS
-    //
-    WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
-
-
-    // Select which render pipeline to use
-    wgpuRenderPassEncoderSetPipeline(renderPass, *pipeline);
-    // Draw 1 instance of a 3-vertices shape
-    wgpuRenderPassEncoderDraw(renderPass, 3, 1, 0, 0);
-
-
-    wgpuRenderPassEncoderEnd(renderPass);
-    //
-    // RENDER PASSS
-    //
+void end_render_pass(RenderPassState state)
+{
+    wgpuRenderPassEncoderEnd(state.renderPass);
 
     WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
     cmdBufferDescriptor.nextInChain = NULL;
 
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &cmdBufferDescriptor);
-    wgpuCommandEncoderRelease(encoder); // release encoder after it's finished
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(state.encoder, &cmdBufferDescriptor);
+    wgpuCommandEncoderRelease(state.encoder); // release encoder after it's finished
 
-    wgpuQueueSubmit(queue, 1, &command);
+    wgpuQueueSubmit(state.queue, 1, &command);
     wgpuCommandBufferRelease(command);
 }
 
@@ -512,12 +512,18 @@ int main()
         WGPUSurfaceTexture surfaceTexture;
         get_next_surface_texture_view(&surface, &targetView, &surfaceTexture);
 
-        render_pass_type_shit(device, targetView, &pipeline);
+        // Begin render pass
+        RenderPassState renderState = begin_render_pass(device, targetView);
+
+        wgpuRenderPassEncoderSetPipeline(renderState.renderPass, pipeline);
+        wgpuRenderPassEncoderDraw(renderState.renderPass, 3, 1, 0, 0);
+        
+        // End render pass
+        end_render_pass(renderState);
 
         wgpuSurfacePresent(surface);
         // Release texture after presenting surface
         wgpuTextureRelease(surfaceTexture.texture);
-
         wgpuTextureViewRelease(targetView);
     }
 
