@@ -359,9 +359,10 @@ void render_pass_type_shit(WGPUDevice device, WGPUTextureView targetView, WGPURe
 
 void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
 {
+    
+    //Initialize vertex shading module
     size_t vertex_shader_words = 0;
     uint32_t *vertex_shader_source = NULL;
-    
     load_spirv(PATH_VERTEX_SHADER, &vertex_shader_source, &vertex_shader_words);
     WGPUShaderSourceSPIRV vertex_shader_spirv = {};
     vertex_shader_spirv.chain.next = NULL;
@@ -373,6 +374,8 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     WGPUShaderModule vertex_shader_module = wgpuDeviceCreateShaderModule(*device, &vertex_shader_desc);
     free(vertex_shader_source);
 
+
+    //Initialize fragment shading module
     size_t fragment_shader_words = 0;
     uint32_t *fragment_shader_source = NULL;
     load_spirv(PATH_FRAGMENT_SHADER, &fragment_shader_source, &fragment_shader_words);
@@ -385,8 +388,9 @@ void initialize_pipeline(WGPURenderPipeline *pipeline, WGPUDevice *device)
     fragment_shader_desc.nextInChain = &fragment_shader_spirv.chain;
     WGPUShaderModule fragment_shader_module = wgpuDeviceCreateShaderModule(*device, &fragment_shader_desc);
     free(fragment_shader_source);
-    WGPUShaderModuleDescriptor shaderDesc{};
 
+
+    WGPUShaderModuleDescriptor shaderDesc{};
     WGPURenderPipelineDescriptor pipelineDesc{};
     pipelineDesc.nextInChain = NULL;
 
