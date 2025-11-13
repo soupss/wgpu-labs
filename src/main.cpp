@@ -80,7 +80,7 @@ int main()
     WGPUBuffer vertex_buffer = create_buffer(device, vertex_buffer_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
     wgpuQueueWriteBuffer(queue, vertex_buffer, 0, THREE_TRIANGLES, vertex_buffer_size);
 
-    const float inital_color[] = {0.0f, 1.0f, 0.0f};
+    float inital_color[] = {0.0f, 1.0f, 0.0f};
     WGPUBuffer color_buffer = create_buffer(device, sizeof(inital_color) + 4, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform);
 
     wgpuQueueWriteBuffer(queue, color_buffer, 0, inital_color, sizeof(inital_color));
@@ -93,11 +93,18 @@ int main()
     wgpuQueueWriteBuffer(queue, white_buffer, 0, white, sizeof(white));
 
     WGPUBindGroup bindGroup2 = create_bind_group(device, bind_group_layout, white_buffer, 0, 4 * sizeof(float));
-    // ...existing code...
+    
 
     bool running = true;
+    int direction = 0;
+    float speed = 0.005f;
     while (running)
     {
+        inital_color[1] = inital_color[1] + speed*direction  - speed*(!direction);
+        if (inital_color[1] >= 1 || inital_color[1] <= 0) {
+            direction = !direction;
+        }
+        wgpuQueueWriteBuffer(queue, color_buffer, 0, inital_color, sizeof(inital_color));
         SDL_Event e;
         while (SDL_PollEvent(&e))
         {
