@@ -13,8 +13,12 @@ void main()
     float t = u_time;
     vec2 res = vec2(1200, 800);
     vec2 uv = gl_FragCoord.xy / res;
-    uv = uv * 2.0 - 1.0;
+    uv = uv * 2.0 - 1.0; // remap to -1 to 1
+
+    float d = length(uv);
+    float circle = sin(d * 40 - t * 12.0);
+
     float pulse = 0.5 + 0.5*sin(3*t);
 
-    color = vec4(pulse * uv, 1.0, 1.0);
+    color = vec4(vec2(circle), 0.5, 1.0);
 }
