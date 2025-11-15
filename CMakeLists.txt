@@ -55,7 +55,7 @@ if(NOT WEBGPU_INCLUDE_DIR OR NOT WGPU_NATIVE_LIB)
   message(FATAL_ERROR "Could not find webgpu headers or wgpu_native library")
 endif()
 
-target_include_directories(bin PRIVATE ${WEBGPU_INCLUDE_DIR} ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+target_include_directories(bin PRIVATE ${WEBGPU_INCLUDE_DIR} ${IMGUI_DIR} ${IMGUI_DIR}/backends ${CMAKE_CURRENT_SOURCE_DIR}/inc )
 target_link_libraries(bin PRIVATE ${WGPU_NATIVE_LIB} SDL3::SDL3)
 
 # On macOS you’ll usually also need system frameworks for window/surface integration
