@@ -46,7 +46,8 @@ typedef struct State {
 } State;
 
 typedef struct Imgui {
-
+    float camera_pan;
+    float anisotropy;
 } Imgui;
 
 typedef struct Uniforms {
@@ -684,10 +685,15 @@ void terminate(State *s)
     wgpuRenderPipelineRelease(s->pipeline);
 }
 
-void imgui() {
+void render_imgui(Imgui *imgui) {
     ImGui_ImplSDL3_NewFrame();
     ImGui_ImplWGPU_NewFrame();
     ImGui::NewFrame();
+
+    ImGui::SliderFloat("Anisotropic filtering", &(imgui->anisotropy), 1.0, 16.0, "Number of samples: %.0f");
+	ImGui::Dummy({ 0, 20 });
+	ImGui::SliderFloat("Camera Panning", &(imgui->camera_pan), -1.0, 1.0);
+
 
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
@@ -711,6 +717,11 @@ int main() {
         .texture_asphalt = NULL,
         .bg_asphalt = NULL,
         .bg_explosion = NULL
+    };
+
+    Imgui imgui_state = {
+        .anisotropy = 1,
+        .camera_pan = 0.0f
     };
 
     initialize(&s);
@@ -750,14 +761,14 @@ int main() {
     float far_plane = 400.0f;
     glm_perspective(fovy, aspect_ratio, near_plane, far_plane, uniform_buffer_state.projection_matrix);
 
-    vec3 camera_position = {0, 10, 0};
-    glm_vec3_copy(camera_position, uniform_buffer_state.camera_position);
-
-    wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
-
     uint64_t freq = SDL_GetPerformanceFrequency();
     bool running = true;
     while (running) {
+        vec3 camera_position = {imgui_state.camera_pan, 10, 0};
+        glm_vec3_copy(camera_position, uniform_buffer_state.camera_position);
+
+        wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
+
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = false;
@@ -768,7 +779,7 @@ int main() {
         uniform_buffer_state.time = time;
         wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
 
-        imgui();
+        render_imgui(&imgui_state);
 
         render(&s);
     }
