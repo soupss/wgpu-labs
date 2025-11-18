@@ -12,15 +12,19 @@
 #define PATH_VERTEX_SHADER "build/vert.spv"
 #define PATH_FRAGMENT_SHADER "build/frag.spv"
 #define PATH_TEXTURE_ASPHALT "assets/textures/asphalt.jpg"
+#define PATH_TEXTURE_EXPLOSION "assets/textures/explosion.png"
 
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
 
-#define VERTICES_AMOUNT 4
-#define VERTEX_BUFFER_STRIDE 5
-#define INDICES_AMOUNT 6
+#define VERTEX_COUNT_QUAD 4
+#define VERTEX_COUNT_TOTAL (2 * VERTEX_COUNT_QUAD)
+#define VERTEX_BUFFER_STRIDE 5 // 3 pos + 2 uv
 
-#define BIND_GROUPS 3
+#define INDEX_COUNT_QUAD 6
+#define INDEX_COUNT_TOTAL (2 * INDEX_COUNT_QUAD)
+
+#define BG_ENTRY_COUNT 3
 
 typedef struct State {
     SDL_Window *window;
@@ -35,8 +39,10 @@ typedef struct State {
     WGPUBuffer vertex_buffer;
     WGPUBuffer index_buffer;
     size_t vertex_buffer_size;
-    WGPUTexture texture;
-    WGPUBindGroup bind_group;
+    WGPUTexture texture_asphalt;
+    WGPUTexture texture_explosion;
+    WGPUBindGroup bg_asphalt;
+    WGPUBindGroup bg_explosion;
 } State;
 
 typedef struct Imgui {
@@ -245,7 +251,7 @@ void initialize(State *s)
     // === LAYOUTS ===
     // ===============
 
-    WGPUBindGroupLayoutEntry bind_group_layout_entries[BIND_GROUPS] = {
+    WGPUBindGroupLayoutEntry bgl_entries[BG_ENTRY_COUNT] = {
         {
             .binding = 0,
             .visibility = WGPUShaderStage_Fragment | WGPUShaderStage_Vertex,
@@ -264,17 +270,17 @@ void initialize(State *s)
         }
     };
 
-    WGPUBindGroupLayoutDescriptor bind_group_layout_desc = {
+    WGPUBindGroupLayoutDescriptor bgl_desc = {
         .nextInChain = NULL,
-        .entryCount = BIND_GROUPS,
-        .entries = bind_group_layout_entries
+        .entryCount = BG_ENTRY_COUNT,
+        .entries = bgl_entries
     };
-    WGPUBindGroupLayout bind_group_layout = wgpuDeviceCreateBindGroupLayout(s->device, &bind_group_layout_desc);
+    WGPUBindGroupLayout bgl = wgpuDeviceCreateBindGroupLayout(s->device, &bgl_desc);
 
     WGPUPipelineLayoutDescriptor pipeline_layout_desc = {
         .nextInChain = NULL,
         .bindGroupLayoutCount = 1,
-        .bindGroupLayouts = &bind_group_layout
+        .bindGroupLayouts = &bgl
     };
     WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(s->device, &pipeline_layout_desc);
 
@@ -285,7 +291,7 @@ void initialize(State *s)
     WGPUBufferDescriptor vertex_buffer_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
-        .size = VERTICES_AMOUNT * VERTEX_BUFFER_STRIDE * sizeof(float),
+        .size = VERTEX_COUNT_TOTAL * VERTEX_BUFFER_STRIDE * sizeof(float),
         .mappedAtCreation = false
     };
     s->vertex_buffer = wgpuDeviceCreateBuffer(s->device, &vertex_buffer_desc);
@@ -293,7 +299,7 @@ void initialize(State *s)
     WGPUBufferDescriptor index_buffer_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst,
-        .size = INDICES_AMOUNT * sizeof(int),
+        .size = INDEX_COUNT_TOTAL * sizeof(int),
         .mappedAtCreation = false
     };
     s->index_buffer = wgpuDeviceCreateBuffer(s->device, &index_buffer_desc);
@@ -310,12 +316,15 @@ void initialize(State *s)
     // === TEXTURES ===
     // ================
 
-    int image_width, image_height;
-    const int IMAGE_CHANNELS = 4;
-    unsigned char *image_asphalt = stbi_load(PATH_TEXTURE_ASPHALT, &image_width, &image_height, NULL, IMAGE_CHANNELS);
 
-    WGPUTextureDescriptor texture_desc = {
-        .size = {(uint32_t)image_width, (uint32_t)image_height, 1},
+    // asphalt texture
+
+    int image_asphalt_width, image_asphalt_height;
+    const int IMAGE_ASPHALT_CHANNELS = 4;
+    unsigned char *image_asphalt = stbi_load(PATH_TEXTURE_ASPHALT, &image_asphalt_width, &image_asphalt_height, NULL, IMAGE_ASPHALT_CHANNELS);
+
+    WGPUTextureDescriptor texture_asphalt_desc = {
+        .size = {(uint32_t)image_asphalt_width, (uint32_t)image_asphalt_height, 1},
         .nextInChain = NULL,
         .mipLevelCount = 1,
         .sampleCount = 1,
@@ -324,42 +333,95 @@ void initialize(State *s)
         .viewFormatCount = 0,
         .viewFormats = NULL
     };
-    s->texture = wgpuDeviceCreateTexture(s->device, &texture_desc);
+    s->texture_asphalt = wgpuDeviceCreateTexture(s->device, &texture_asphalt_desc);
 
-    WGPUTexelCopyTextureInfo texture_destination = {
-        .texture = s->texture,
+    WGPUTexelCopyTextureInfo texture_asphalt_destination = {
+        .texture = s->texture_asphalt,
         .mipLevel = 0,
         .origin = {0, 0, 0},
         .aspect = WGPUTextureAspect_All
     };
 
-    WGPUTexelCopyBufferLayout texture_layout = {
+    WGPUTexelCopyBufferLayout texture_asphalt_layout = {
         .offset = 0,
-        .bytesPerRow = IMAGE_CHANNELS * texture_desc.size.width,
-        .rowsPerImage = texture_desc.size.height
+        .bytesPerRow = IMAGE_ASPHALT_CHANNELS * texture_asphalt_desc.size.width,
+        .rowsPerImage = texture_asphalt_desc.size.height
     };
 
     wgpuQueueWriteTexture(
-            s->queue,
-            &texture_destination,
-            image_asphalt,
-            IMAGE_CHANNELS * texture_desc.size.width * texture_desc.size.height,
-            &texture_layout,
-            &texture_desc.size
-            );
+        s->queue,
+        &texture_asphalt_destination,
+        image_asphalt,
+        IMAGE_ASPHALT_CHANNELS * texture_asphalt_desc.size.width * texture_asphalt_desc.size.height,
+        &texture_asphalt_layout,
+        &texture_asphalt_desc.size
+    );
 
     stbi_image_free(image_asphalt);
 
-    WGPUTextureViewDescriptor texture_view_desc = {
+    WGPUTextureViewDescriptor texture_view_asphalt_desc = {
         .aspect = WGPUTextureAspect_All,
         .baseArrayLayer = 0,
         .arrayLayerCount = 1,
         .baseMipLevel = 0,
         .mipLevelCount = 1,
         .dimension = WGPUTextureViewDimension_2D,
-        .format = texture_desc.format
+        .format = texture_asphalt_desc.format
     };
-    WGPUTextureView texture_view = wgpuTextureCreateView(s->texture, &texture_view_desc);
+    WGPUTextureView texture_view_asphalt = wgpuTextureCreateView(s->texture_asphalt, &texture_view_asphalt_desc);
+
+    // explosion texture
+
+    int image_explosion_width, image_explosion_height;
+    const int IMAGE_EXPLOSION_CHANNELS = 4;
+    unsigned char *image_explosion = stbi_load(PATH_TEXTURE_EXPLOSION, &image_explosion_width, &image_explosion_height, NULL, IMAGE_EXPLOSION_CHANNELS);
+
+    WGPUTextureDescriptor texture_explosion_desc = {
+        .size = {(uint32_t)image_explosion_width, (uint32_t)image_explosion_height, 1},
+        .nextInChain = NULL,
+        .mipLevelCount = 1,
+        .sampleCount = 1,
+        .format = WGPUTextureFormat_RGBA8Unorm,
+        .usage = WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding,
+        .viewFormatCount = 0,
+        .viewFormats = NULL
+    };
+    s->texture_explosion = wgpuDeviceCreateTexture(s->device, &texture_explosion_desc);
+
+    WGPUTexelCopyTextureInfo texture_explosion_destination = {
+        .texture = s->texture_explosion,
+        .mipLevel = 0,
+        .origin = {0, 0, 0},
+        .aspect = WGPUTextureAspect_All
+    };
+
+    WGPUTexelCopyBufferLayout texture_explosion_layout = {
+        .offset = 0,
+        .bytesPerRow = IMAGE_EXPLOSION_CHANNELS * texture_explosion_desc.size.width,
+        .rowsPerImage = texture_explosion_desc.size.height
+    };
+
+    wgpuQueueWriteTexture(
+        s->queue,
+        &texture_explosion_destination,
+        image_explosion,
+        IMAGE_EXPLOSION_CHANNELS * texture_explosion_desc.size.width * texture_explosion_desc.size.height,
+        &texture_explosion_layout,
+        &texture_explosion_desc.size
+    );
+
+    stbi_image_free(image_explosion);
+
+    WGPUTextureViewDescriptor texture_view_explosion_desc = {
+        .aspect = WGPUTextureAspect_All,
+        .baseArrayLayer = 0,
+        .arrayLayerCount = 1,
+        .baseMipLevel = 0,
+        .mipLevelCount = 1,
+        .dimension = WGPUTextureViewDimension_2D,
+        .format = texture_explosion_desc.format
+    };
+    WGPUTextureView texture_view_explosion = wgpuTextureCreateView(s->texture_explosion, &texture_view_explosion_desc);
 
     WGPUSamplerDescriptor sampler_desc = {
         .addressModeU = WGPUAddressMode_ClampToEdge,
@@ -380,7 +442,7 @@ void initialize(State *s)
     // === BIND GROUPS ===
     // ===================
 
-    WGPUBindGroupEntry bind_group_entries[BIND_GROUPS] = {
+    WGPUBindGroupEntry bg_asphalt_entries[BG_ENTRY_COUNT] = {
         {
             .binding = 0,
             .buffer = s->uniform_buffer,
@@ -393,19 +455,45 @@ void initialize(State *s)
         },
         {
             .binding = 2,
-            .textureView = texture_view
-        }
+            .textureView = texture_view_asphalt
+        },
     };
 
-    WGPUBindGroupDescriptor bind_group_desc = {
+    WGPUBindGroupDescriptor bg_asphalt_desc = {
         .nextInChain = NULL,
-        .layout = bind_group_layout,
-        .entryCount = BIND_GROUPS,
-        .entries = bind_group_entries
+        .layout = bgl,
+        .entryCount = BG_ENTRY_COUNT,
+        .entries = bg_asphalt_entries
     };
-    s->bind_group = wgpuDeviceCreateBindGroup(s->device, &bind_group_desc);
+    s->bg_asphalt = wgpuDeviceCreateBindGroup(s->device, &bg_asphalt_desc);
 
-    wgpuBindGroupLayoutRelease(bind_group_layout);
+
+    WGPUBindGroupEntry bg_explosion_entries[BG_ENTRY_COUNT] = {
+        {
+            .binding = 0,
+            .buffer = s->uniform_buffer,
+            .offset = 0,
+            .size = sizeof(Uniforms)
+        },
+        {
+            .binding = 1,
+            .sampler = sampler
+        },
+        {
+            .binding = 2,
+            .textureView = texture_view_explosion
+        },
+    };
+
+    WGPUBindGroupDescriptor bg_explosion_desc = {
+        .nextInChain = NULL,
+        .layout = bgl,
+        .entryCount = BG_ENTRY_COUNT,
+        .entries = bg_explosion_entries
+    };
+    s->bg_explosion = wgpuDeviceCreateBindGroup(s->device, &bg_explosion_desc);
+
+    wgpuBindGroupLayoutRelease(bgl);
 
     // ================
     // === PIPELINE ===
@@ -476,7 +564,7 @@ void initialize(State *s)
         .primitive.topology = WGPUPrimitiveTopology_TriangleList,
         .primitive.stripIndexFormat = WGPUIndexFormat_Undefined,
         .primitive.frontFace = WGPUFrontFace_CCW,
-        .primitive.cullMode = WGPUCullMode_None,
+        .primitive.cullMode = WGPUCullMode_Front,
 
         .fragment = &fragment_state,
 
@@ -548,10 +636,12 @@ void render(State *s) {
         wgpuRenderPassEncoderSetPipeline(render_pass, s->pipeline);
 
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vertex_buffer, 0, WGPU_WHOLE_SIZE);
-        wgpuRenderPassEncoderSetIndexBuffer(render_pass, s->index_buffer, WGPUIndexFormat_Uint32, 0, INDICES_AMOUNT * sizeof(int));
-        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bind_group, 0, NULL);
+        wgpuRenderPassEncoderSetIndexBuffer(render_pass, s->index_buffer, WGPUIndexFormat_Uint32, 0, INDEX_COUNT_TOTAL * sizeof(int));
+        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_asphalt, 0, NULL);
+        wgpuRenderPassEncoderDrawIndexed(render_pass, INDEX_COUNT_QUAD, 1, 0, 0, 0);
 
-        wgpuRenderPassEncoderDrawIndexed(render_pass, INDICES_AMOUNT, 1, 0, 0, 0);
+        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_explosion, 0, NULL);
+        wgpuRenderPassEncoderDrawIndexed(render_pass, INDEX_COUNT_QUAD, 1, INDEX_COUNT_QUAD, 0, 0);
 
         ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
 
@@ -586,7 +676,8 @@ void terminate(State *s)
     wgpuSurfaceRelease(s->surface);
     wgpuBufferRelease(s->vertex_buffer);
     wgpuBufferRelease(s->uniform_buffer);
-    wgpuBindGroupRelease(s->bind_group);
+    wgpuBindGroupRelease(s->bg_asphalt);
+    wgpuBindGroupRelease(s->bg_explosion);
     wgpuAdapterRelease(s->adapter);
     wgpuDeviceRelease(s->device);
     wgpuInstanceRelease(s->instance);
@@ -617,24 +708,35 @@ int main() {
         .vertex_buffer = NULL,
         .index_buffer = NULL,
         .vertex_buffer_size = 0,
-        .texture = NULL,
-        .bind_group = NULL
+        .texture_asphalt = NULL,
+        .bg_asphalt = NULL,
+        .bg_explosion = NULL
     };
 
     initialize(&s);
 
-    const float vertices[] = {
-		-10.0f, 0.0f, -10.0f, 0.0, 0.0,
-		-10.0f, 0.0f, -330.0f, 0.0, 15.0,
-		10.0f,  0.0f, -330.0f, 1.0, 15.0,
-		10.0f,  0.0f, -10.0f, 1.0, 0.0
+    const float vertices[VERTEX_COUNT_TOTAL * VERTEX_BUFFER_STRIDE] = {
+        // asphalt
+		-10.0f, 0.0f, -10.0f, 0.0f, 0.0f,
+		-10.0f, 0.0f, -330.0f, 0.0f, 15.0f,
+		10.0f,  0.0f, -330.0f, 1.0f, 15.0f,
+		10.0f,  0.0f, -10.0f, 1.0f, 0.0f,
+        // explosion
+        2.0f, 0.0f, -22.0f, 0.0f, 0.0f,
+        2.0f, 10.0f, -22.0f, 0.0f, 1.0f,
+        12.0f, 10.0f, -22.0f, 1.0f, 1.0f,
+        12.0f, 0.0f, -22.0f, 1.0f, 0.0f
     };
     s.vertex_buffer_size = sizeof(vertices);
     wgpuQueueWriteBuffer(s.queue, s.vertex_buffer, 0, vertices, sizeof(vertices));
 
-    const int indices[] = {
+    const int indices[INDEX_COUNT_TOTAL] = {
+        // asphalt
         0, 1, 2,
-        0, 2, 3
+        0, 2, 3,
+        // explosion
+        4, 5, 6,
+        4, 6, 7
     };
     wgpuQueueWriteBuffer(s.queue, s.index_buffer, 0, indices, sizeof(indices));
 
