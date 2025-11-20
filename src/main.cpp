@@ -147,20 +147,44 @@ void on_staging_buffer_mapped(
 
 }
 
-void square_array(WGPUDevice device, WGPUShaderModule module) {
-    ////////////
-    // LAYOUT //
-    ////////////
+void generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUTexture texture, int mip_level_count) {
+    const int BG_COMP_ENTRY_COUNT = 4;
+    const int tex_width = wgpuTextureGetWidth(texture);
+    const int tex_height = wgpuTextureGetHeight(texture);
 
-    WGPUBindGroupLayoutEntry bgl_entry = {
-        .binding = 0,
-        .visibility = WGPUShaderStage_Compute,
-        .buffer.type = WGPUBufferBindingType_Storage
+    WGPUBindGroupLayoutEntry bgl_entries[BG_COMP_ENTRY_COUNT] = {
+        {
+            .binding = 0,
+            .visibility = WGPUShaderStage_Compute,
+            .sampler.type = WGPUSamplerBindingType_Filtering
+        },
+        {
+            .binding = 1,
+            .visibility = WGPUShaderStage_Compute,
+            .texture = {
+                .sampleType = WGPUTextureSampleType_Float,
+                .viewDimension = WGPUTextureViewDimension_2D,
+            }
+        },
+        {
+            .binding = 2,
+            .visibility = WGPUShaderStage_Compute,
+            .storageTexture = {
+                .access = WGPUStorageTextureAccess_WriteOnly,
+                .viewDimension = WGPUTextureViewDimension_2D,
+                .format = WGPUTextureFormat_RGBA8Unorm,
+            }
+        },
+        {
+            .binding = 3,
+            .visibility = WGPUShaderStage_Compute,
+            .buffer.type = WGPUBufferBindingType_Uniform,
+        }
     };
 
     WGPUBindGroupLayoutDescriptor bgl_desc = {
-        .entryCount = 1,
-        .entries = &bgl_entry
+        .entryCount = BG_COMP_ENTRY_COUNT,
+        .entries = bgl_entries
     };
 
     WGPUBindGroupLayout bgl = wgpuDeviceCreateBindGroupLayout(device, &bgl_desc);
@@ -171,54 +195,6 @@ void square_array(WGPUDevice device, WGPUShaderModule module) {
         .bindGroupLayouts = &bgl
     };
     WGPUPipelineLayout comp_pipeline_layout = wgpuDeviceCreatePipelineLayout(device, &comp_pipeline_layout_desc);
-
-    /////////////
-    // BUFFERS //
-    /////////////
-
-    float in[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-
-    WGPUBufferDescriptor buffer_storage_desc = {
-        .usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc,
-        .size = sizeof(in)
-    };
-    WGPUBuffer buffer_storage = wgpuDeviceCreateBuffer(device, &buffer_storage_desc);
-
-    WGPUBufferDescriptor buffer_stage_desc = {
-        .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead,
-        .size = sizeof(in)
-    };
-    WGPUBuffer buffer_stage = wgpuDeviceCreateBuffer(device, &buffer_stage_desc);
-
-    WGPUQueue queue = wgpuDeviceGetQueue(device);
-    wgpuQueueWriteBuffer(queue, buffer_storage, 0, in, sizeof(in));
-
-
-    /////////////////
-    // BIND GROUPS //
-    /////////////////
-
-    WGPUBindGroupEntry bg_entry = {
-        .binding = 0,
-        .buffer = buffer_storage,
-        .offset = 0,
-        .size = sizeof(in)
-    };
-
-    WGPUBindGroupDescriptor bg_desc = {
-        .nextInChain = NULL,
-        .layout = bgl,
-        .entryCount = 1,
-        .entries = &bg_entry
-    };
-
-    WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device, &bg_desc);
-
-    wgpuBindGroupLayoutRelease(bgl);
-
-    //////////////
-    // PIPELINE //
-    //////////////
 
     WGPUComputePipelineDescriptor comp_pipeline_desc = {
         .compute.module = module,
@@ -232,57 +208,110 @@ void square_array(WGPUDevice device, WGPUShaderModule module) {
     WGPUComputePipeline comp_pipeline = wgpuDeviceCreateComputePipeline(device, &comp_pipeline_desc);
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, NULL);
+    WGPUQueue queue = wgpuDeviceGetQueue(device);
 
-    //////////
-    // PASS //
-    //////////
+    WGPUSamplerDescriptor sampler_desc = {
+        .nextInChain = NULL,
+        .magFilter = WGPUFilterMode_Linear,
+        .minFilter = WGPUFilterMode_Linear,
+        .mipmapFilter = WGPUMipmapFilterMode_Linear,
+        .addressModeU = WGPUAddressMode_ClampToEdge,
+        .addressModeV = WGPUAddressMode_ClampToEdge,
+        .addressModeW = WGPUAddressMode_ClampToEdge,
+        .lodMinClamp = 0.0f,
+        .lodMaxClamp = 100.0f,
+        .maxAnisotropy = 1
+    };
 
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+    WGPUSampler sampler = wgpuDeviceCreateSampler(device, &sampler_desc);
 
-    wgpuComputePassEncoderSetPipeline(pass, comp_pipeline);
-    wgpuComputePassEncoderSetBindGroup(pass, 0, bg, 0, NULL);
+    typedef struct UniformSrcDim{
+        int texview_src_width;
+        int texview_src_height;
+    } UniformSrcDim;
 
-    wgpuComputePassEncoderDispatchWorkgroups(pass, 10, 1, 1);
+    WGPUBufferDescriptor buffer_uniforms_desc = {
+        .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
+        .size = sizeof(UniformSrcDim),
+        .mappedAtCreation = false
+    };
 
-    wgpuComputePassEncoderEnd(pass);
+    WGPUBuffer buffer_uniforms = wgpuDeviceCreateBuffer(device, &buffer_uniforms_desc);
 
-    wgpuCommandEncoderCopyBufferToBuffer(encoder, buffer_storage, 0, buffer_stage, 0, sizeof(in));
+    for (int mip = 0; mip < mip_level_count - 1; mip++) {
+        WGPUTextureViewDescriptor texview_src_desc = {
+            .dimension = WGPUTextureViewDimension_2D,
+            .baseMipLevel = (uint32_t)mip,
+            .mipLevelCount = 1,
+            .baseArrayLayer = 0,
+            .arrayLayerCount = 1,
+            .aspect = WGPUTextureAspect_All
+        };
+        WGPUTextureView texview_src = wgpuTextureCreateView(texture, &texview_src_desc);
+
+        WGPUTextureViewDescriptor texview_dst_desc = texview_src_desc;
+        texview_dst_desc.baseMipLevel = mip + 1;
+        WGPUTextureView texview_dst = wgpuTextureCreateView(texture, &texview_dst_desc);
+
+        UniformSrcDim src_dim = {
+            .texview_src_width = tex_width >> (mip),
+            .texview_src_height = tex_height >> (mip)
+        };
+
+        wgpuQueueWriteBuffer(queue, buffer_uniforms, 0, &src_dim, sizeof(UniformSrcDim));
+
+        WGPUBindGroupEntry bg_entries[BG_COMP_ENTRY_COUNT] = {
+            {
+                .binding = 0,
+                .sampler = sampler,
+            },
+            {
+                .binding = 1,
+                .textureView = texview_src,
+            },
+            {
+                .binding = 2,
+                .textureView = texview_dst,
+            },
+            {
+                .binding = 3,
+                .buffer = buffer_uniforms,
+                .offset = 0,
+                .size = sizeof(UniformSrcDim)
+            }
+        };
+
+        WGPUBindGroupDescriptor bg_desc = {
+            .nextInChain = NULL,
+            .layout = bgl,
+            .entryCount = BG_COMP_ENTRY_COUNT,
+            .entries = bg_entries
+        };
+
+        WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device, &bg_desc);
+
+        WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
+
+        wgpuComputePassEncoderSetPipeline(pass, comp_pipeline);
+        wgpuComputePassEncoderSetBindGroup(pass, 0, bg, 0, NULL);
+
+        int texview_dst_width = tex_width >> (mip+1);
+        int texview_dst_height = tex_height >> (mip+1);
+
+        wgpuComputePassEncoderDispatchWorkgroups(pass, texview_dst_width, texview_dst_height, 1);
+
+        wgpuComputePassEncoderEnd(pass);
+
+    }
 
     WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(encoder, NULL);
     wgpuCommandEncoderRelease(encoder);
 
     wgpuQueueSubmit(queue, 1, &command_buffer);
 
-    wgpuCommandBufferRelease(command_buffer);
+    wgpuBindGroupLayoutRelease(bgl);
     wgpuQueueRelease(queue);
-
-    //////////////
-    // COPYBACK //
-    //////////////
-
-    MapBufferRequest request = {
-        .request_ended = false
-    };
-
-    WGPUBufferMapCallbackInfo callback_info = {
-        .nextInChain = NULL,
-        .mode = WGPUCallbackMode_AllowProcessEvents,
-        .callback = on_staging_buffer_mapped,
-        .userdata1 = &request,
-    };
-
-    wgpuBufferMapAsync(buffer_stage, WGPUMapMode_Read, 0, sizeof(in), callback_info);
-    while (!request.request_ended) {
-        wgpuDevicePoll(device, true, NULL);
-    }
-
-    const float *out = (const float*)wgpuBufferGetConstMappedRange(buffer_stage, 0, sizeof(in));
-
-    for (int i = 0; i < 10; i++) {
-        printf("%f\n", out[i]);
-    }
-
-    wgpuBufferUnmap(buffer_stage);
+    wgpuCommandBufferRelease(command_buffer);
 }
 
 // 1. Instance, adapter, device, queue
@@ -516,7 +545,6 @@ void initialize(State *s)
     // === TEXTURES ===
     // ================
 
-
     // asphalt texture
 
     int image_asphalt_width, image_asphalt_height;
@@ -533,14 +561,11 @@ void initialize(State *s)
         .mipLevelCount = (uint32_t)texture_asphalt_mip_level_count,
         .sampleCount = 1,
         .format = WGPUTextureFormat_RGBA8Unorm,
-        .usage = WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding,
+        .usage = WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_StorageBinding,
         .viewFormatCount = 0,
         .viewFormats = NULL
-
     };
     s->texture_asphalt = wgpuDeviceCreateTexture(s->device, &texture_asphalt_desc);
-
-    square_array(s->device, compute_shader_module);
 
     WGPUTexelCopyTextureInfo texture_asphalt_destination = {
         .texture = s->texture_asphalt,
@@ -564,6 +589,8 @@ void initialize(State *s)
         &texture_asphalt_desc.size
     );
 
+    generate_mipmaps(s->device, compute_shader_module, s->texture_asphalt, texture_asphalt_mip_level_count);
+
     stbi_image_free(image_asphalt);
 
     WGPUTextureViewDescriptor texture_view_asphalt_desc = {
@@ -571,7 +598,7 @@ void initialize(State *s)
         .baseArrayLayer = 0,
         .arrayLayerCount = 1,
         .baseMipLevel = 0,
-        .mipLevelCount = 1,
+        .mipLevelCount = (uint32_t)texture_asphalt_mip_level_count,
         .dimension = WGPUTextureViewDimension_2D,
         .format = texture_asphalt_desc.format
     };
@@ -589,7 +616,7 @@ void initialize(State *s)
         .mipLevelCount = 1,
         .sampleCount = 1,
         .format = WGPUTextureFormat_RGBA8Unorm,
-        .usage = WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding,
+        .usage = WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_StorageBinding,
         .viewFormatCount = 0,
         .viewFormats = NULL
     };
@@ -638,7 +665,7 @@ void initialize(State *s)
         .minFilter = WGPUFilterMode_Linear,
         .mipmapFilter = WGPUMipmapFilterMode_Linear,
         .lodMinClamp = 0.0f,
-        .lodMaxClamp = 1.0f,
+        .lodMaxClamp = 1000.0f,
         .compare = WGPUCompareFunction_Undefined,
         .maxAnisotropy = 16
     };
