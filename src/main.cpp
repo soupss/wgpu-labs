@@ -207,7 +207,6 @@ void generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUTexture te
 
     WGPUComputePipeline comp_pipeline = wgpuDeviceCreateComputePipeline(device, &comp_pipeline_desc);
 
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, NULL);
     WGPUQueue queue = wgpuDeviceGetQueue(device);
 
     WGPUSamplerDescriptor sampler_desc = {
@@ -290,6 +289,7 @@ void generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUTexture te
 
         WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device, &bg_desc);
 
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, NULL);
         WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, NULL);
 
         wgpuComputePassEncoderSetPipeline(pass, comp_pipeline);
@@ -302,16 +302,16 @@ void generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUTexture te
 
         wgpuComputePassEncoderEnd(pass);
 
+        WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(encoder, NULL);
+        wgpuCommandEncoderRelease(encoder);
+
+        wgpuQueueSubmit(queue, 1, &command_buffer);
+        wgpuCommandBufferRelease(command_buffer);
     }
 
-    WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(encoder, NULL);
-    wgpuCommandEncoderRelease(encoder);
-
-    wgpuQueueSubmit(queue, 1, &command_buffer);
 
     wgpuBindGroupLayoutRelease(bgl);
     wgpuQueueRelease(queue);
-    wgpuCommandBufferRelease(command_buffer);
 }
 
 // 1. Instance, adapter, device, queue
