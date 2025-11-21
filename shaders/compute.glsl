@@ -14,24 +14,24 @@ layout(set = 0, binding = 3) uniform SrcDim {
 void main() {
     ivec2 dst_pos = ivec2(gl_GlobalInvocationID.xy);
 
-    ivec2 src_pos1 = 2 * dst_pos;
-    ivec2 src_pos2 = ivec2(src_pos1.x + 1, src_pos1.y);
-    ivec2 src_pos3 = ivec2(src_pos1.x, src_pos1.y + 1);
-    ivec2 src_pos4 = ivec2(src_pos1.x + 1, src_pos1.y + 1);
+    // sample source mipmap
+    vec2 src_pos[4];
+    src_pos[0] = 2 * dst_pos;
+    src_pos[1] = ivec2(src_pos[0].x + 1, src_pos[0].y);
+    src_pos[2] = ivec2(src_pos[0].x, src_pos[0].y + 1);
+    src_pos[3] = ivec2(src_pos[0].x + 1, src_pos[0].y + 1);
 
-    vec2 src_dim = vec2(u_src_dim.w, u_src_dim.h);
+    ivec2 src_dim = ivec2(u_src_dim.w, u_src_dim.h);
 
-    vec2 uv1 = (vec2(src_pos1) + 0.5) / src_dim;
-    vec2 uv2 = (vec2(src_pos2) + 0.5) / src_dim;
-    vec2 uv3 = (vec2(src_pos3) + 0.5) / src_dim;
-    vec2 uv4 = (vec2(src_pos4) + 0.5) / src_dim;
+    // average samples
+    vec2 uv[4];
+    vec4 c_tot = vec4(0.0);
+    for (int i = 0; i < 4; i++) {
+        uv[i] = src_pos[i] / src_dim;
+        c_tot += texture(sampler2D(u_src, u_sampler), uv[i]);
+    }
 
-    vec4 c1 = texture(sampler2D(u_src, u_sampler), uv1);
-    vec4 c2 = texture(sampler2D(u_src, u_sampler), uv2);
-    vec4 c3 = texture(sampler2D(u_src, u_sampler), uv3);
-    vec4 c4 = texture(sampler2D(u_src, u_sampler), uv4);
+    vec4 avg = c_tot / 4.0;
 
-    vec4 avg = (c1 + c2 + c3 + c4) / 4.0;
-
-    imageStore(u_dst, dst_pos, c1);
+    imageStore(u_dst, dst_pos, avg);
 }

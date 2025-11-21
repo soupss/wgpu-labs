@@ -16,7 +16,10 @@ set(IMGUI_SOURCES
 
 set(CGLM_ROOT /opt/homebrew)
 
-file(GLOB SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+file(GLOB SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
+)
 add_executable(bin ${SOURCES} ${IMGUI_SOURCES})
 
 target_compile_definitions(bin PRIVATE IMGUI_IMPL_WEBGPU_BACKEND_WGPU)
