@@ -8,6 +8,7 @@
 #include <imgui_impl_wgpu.h>
 #include "constants.h"
 #include "util.hpp"
+#include "model.h"
 
 typedef struct AdapterRequest {
     WGPUAdapter *adapter;
@@ -27,7 +28,7 @@ void _on_adapter_request_ended(
 
     if (status == WGPURequestAdapterStatus_Success) {
         printf("Adapter request succeeded\n");
-        // print_adapter_info(adapter);
+        // u_print_adapter_info(adapter);
     }
     else {
         fprintf(stderr,
@@ -41,7 +42,7 @@ typedef struct DeviceRequest {
     bool request_ended;
 } DeviceRequest;
 
-void _on_device_request_ended(
+static void _on_device_request_ended(
     WGPURequestDeviceStatus status,
     WGPUDevice device,
     WGPUStringView message,
@@ -53,7 +54,7 @@ void _on_device_request_ended(
     device_request_state->request_ended = true;
     if (status == WGPURequestDeviceStatus_Success) {
         printf("Device request succeeded\n");
-        // print_device_info(device);
+        // u_print_device_info(device);
     }
     else {
         fprintf(stderr,
@@ -62,7 +63,7 @@ void _on_device_request_ended(
     }
 }
 
-void _generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUSampler sampler, WGPUTexture texture, int mip_level_count) {
+static void _generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUSampler sampler, WGPUTexture texture, int mip_level_count) {
     const int tex_width = wgpuTextureGetWidth(texture);
     const int tex_height = wgpuTextureGetHeight(texture);
 
@@ -217,7 +218,7 @@ void _generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUSampler s
     wgpuQueueRelease(queue);
 }
 
-void _get_mip_level_count(const int texture_width, const int texture_height, int *mip_level_count) {
+static void _get_mip_level_count(const int texture_width, const int texture_height, int *mip_level_count) {
     float max = fmaxf((float)texture_width, (float)texture_height);
     *mip_level_count = (int)floorf(log2f(max)) + 1;
 }
@@ -339,7 +340,7 @@ void initialize(State *s) {
 
     int vertex_shader_words = 0;
     uint32_t *vertex_shader_source = NULL;;
-    load_spirv(PATH_SHADER_VERTEX, &vertex_shader_source, &vertex_shader_words);
+    u_load_spirv(PATH_SHADER_VERTEX, &vertex_shader_source, &vertex_shader_words);
     WGPUShaderSourceSPIRV vertex_shader = {
         .chain.next = NULL,
         .chain.sType = WGPUSType_ShaderSourceSPIRV,
@@ -354,7 +355,7 @@ void initialize(State *s) {
 
     int fragment_shader_words = 0;
     uint32_t *fragment_shader_source = NULL;
-    load_spirv(PATH_SHADER_FRAGMENT, &fragment_shader_source, &fragment_shader_words);
+    u_load_spirv(PATH_SHADER_FRAGMENT, &fragment_shader_source, &fragment_shader_words);
     WGPUShaderSourceSPIRV fragment_shader = {
         .chain.next = NULL,
         .chain.sType = WGPUSType_ShaderSourceSPIRV,
@@ -369,7 +370,7 @@ void initialize(State *s) {
 
     int compute_shader_words = 0;
     uint32_t *compute_shader_source = NULL;
-    load_spirv(PATH_SHADER_COMPUTE, &compute_shader_source, &compute_shader_words);
+    u_load_spirv(PATH_SHADER_COMPUTE, &compute_shader_source, &compute_shader_words);
     WGPUShaderSourceSPIRV compute_shader = {
         .chain.next = NULL,
         .chain.sType = WGPUSType_ShaderSourceSPIRV,
@@ -423,21 +424,35 @@ void initialize(State *s) {
     // === BUFFERS ===
     // ===============
 
+    model_load(PATH_MODEL_CAR, &s->mesh_car);
+
     WGPUBufferDescriptor vertex_buffer_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
-        .size = VERTEX_COUNT_TOTAL * VERTEX_BUFFER_STRIDE * sizeof(float),
+        .size = s->mesh_car.vertex_count * VERTEX_BUFFER_STRIDE,
         .mappedAtCreation = false
     };
     s->vertex_buffer = wgpuDeviceCreateBuffer(s->device, &vertex_buffer_desc);
 
+    wgpuQueueWriteBuffer(s->queue,
+            s->vertex_buffer,
+            0,
+            s->mesh_car.vertices,
+            s->mesh_car.vertex_count * VERTEX_BUFFER_STRIDE);
+
     WGPUBufferDescriptor index_buffer_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst,
-        .size = INDEX_COUNT_TOTAL * sizeof(int),
+        .size = s->mesh_car.index_count * sizeof(int),
         .mappedAtCreation = false
     };
     s->index_buffer = wgpuDeviceCreateBuffer(s->device, &index_buffer_desc);
+
+    wgpuQueueWriteBuffer(s->queue,
+            s->index_buffer,
+            0,
+            s->mesh_car.indices,
+            s->mesh_car.index_count * sizeof(int));
 
     WGPUBufferDescriptor uniform_buffer_desc = {
         .nextInChain = NULL,
@@ -641,15 +656,20 @@ void initialize(State *s) {
             .shaderLocation = 0,
         },
         {
-            .format = WGPUVertexFormat_Float32x2,
+            .format = WGPUVertexFormat_Float32x3,
             .offset = 3 * sizeof(float),
             .shaderLocation = 1
+        },
+        {
+            .format = WGPUVertexFormat_Float32x2,
+            .offset = 3 * sizeof(float),
+            .shaderLocation = 2
         }
     };
 
     WGPUVertexBufferLayout vertex_buffer_layout = {
         .stepMode = WGPUVertexStepMode_Vertex,
-        .arrayStride = VERTEX_BUFFER_STRIDE * sizeof(float),
+        .arrayStride = VERTEX_BUFFER_STRIDE,
         .attributeCount = VERTEX_ATTRIBUTE_COUNT,
         .attributes = vertex_attributes
     };

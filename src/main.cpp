@@ -18,72 +18,10 @@ typedef struct Options {
     int max_anisotropy;
 } Options;
 
-void _update_sampler(State *s, const Options *o) {
-    WGPUSamplerDescriptor sampler_desc = {
-        .addressModeU = WGPUAddressMode_ClampToEdge,
-        .addressModeV = WGPUAddressMode_Repeat,
-        .addressModeW = WGPUAddressMode_ClampToEdge,
-        .magFilter = (WGPUFilterMode)o->mag_filter,
-        .minFilter = (WGPUFilterMode)o->min_filter,
-        .mipmapFilter = (WGPUMipmapFilterMode)o->mipmap_filter,
-        .lodMinClamp = 0.0f,
-        .lodMaxClamp = 1000.0f,
-        .compare = WGPUCompareFunction_Undefined,
-        .maxAnisotropy = (uint16_t)o->max_anisotropy
-    };
-
-    WGPUSampler sampler = wgpuDeviceCreateSampler(s->device, &sampler_desc);
-
-    s->bg_asphalt_entries[1].sampler = sampler;
-
-    WGPUBindGroupDescriptor bg_asphalt_desc = {
-        .nextInChain = NULL,
-        .layout = s->bgl,
-        .entryCount = BG_ENTRY_COUNT,
-        .entries = s->bg_asphalt_entries
-    };
-
-    s->bg_asphalt = wgpuDeviceCreateBindGroup(s->device, &bg_asphalt_desc);
-}
-
 void _render_imgui(Options *o) {
     ImGui_ImplSDL3_NewFrame();
     ImGui_ImplWGPU_NewFrame();
     ImGui::NewFrame();
-
-	ImGui::PushID("magFilter");
-	ImGui::Text("Magnification");
-	ImGui::RadioButton("WGPUFilterMode_Nearest", &o->mag_filter, WGPUFilterMode_Nearest);
-	ImGui::RadioButton("WGPUFilterMode_Linear", &o->mag_filter, WGPUFilterMode_Linear);
-	ImGui::PopID();
-
-	ImGui::PushID("minFilter");
-	ImGui::Text("Minification");
-	ImGui::RadioButton("WGPUFilterMode_Nearest", &o->min_filter, WGPUFilterMode_Nearest);
-	ImGui::RadioButton("WGPUFilterMode_Linear", &o->min_filter, WGPUFilterMode_Linear);
-	ImGui::PopID();
-
-	ImGui::PushID("mipmapFilter");
-	ImGui::Text("Minification");
-	ImGui::RadioButton("WGPUMipmapFilterMode_Nearest", &o->mipmap_filter, WGPUMipmapFilterMode_Nearest);
-	ImGui::RadioButton("WGPUMipmapFilterMode_Linear", &o->mipmap_filter, WGPUMipmapFilterMode_Linear);
-	ImGui::PopID();
-
-    bool all_linear =
-    o->mag_filter == WGPUFilterMode_Linear &&
-    o->min_filter == WGPUFilterMode_Linear &&
-    o->mipmap_filter == WGPUMipmapFilterMode_Linear;
-
-    ImGui::BeginDisabled(!all_linear);
-    ImGui::SliderInt("maxAnisotropy", &o->max_anisotropy, 1, 16, "%");
-    ImGui::EndDisabled();
-    if (!all_linear) {
-        o->max_anisotropy = 1;
-    }
-
-	ImGui::Dummy({ 0, 20 });
-	ImGui::SliderFloat("Camera Panning", &o->camera_pan, -1.0, 1.0);
-	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
     ImGui::Render();
 }
@@ -134,12 +72,13 @@ void _render(State *s) {
     wgpuRenderPassEncoderSetPipeline(render_pass, s->pipeline);
 
     wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vertex_buffer, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(render_pass, s->index_buffer, WGPUIndexFormat_Uint32, 0, INDEX_COUNT_TOTAL * sizeof(int));
+    wgpuRenderPassEncoderSetIndexBuffer(render_pass,
+            s->index_buffer,
+            WGPUIndexFormat_Uint32,
+            0,
+            s->mesh_car.index_count * sizeof(int));
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_asphalt, 0, NULL);
-    wgpuRenderPassEncoderDrawIndexed(render_pass, INDEX_COUNT_QUAD, 1, 0, 0, 0);
-
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_explosion, 0, NULL);
-    wgpuRenderPassEncoderDrawIndexed(render_pass, INDEX_COUNT_QUAD, 1, INDEX_COUNT_QUAD, 0, 0);
+    wgpuRenderPassEncoderDrawIndexed(render_pass, s->mesh_car.index_count, 1, 0, 0, 0);
 
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
 
@@ -195,7 +134,7 @@ int main() {
         .uniform_buffer = NULL,
         .vertex_buffer = NULL,
         .index_buffer = NULL,
-        .vertex_buffer_size = 0,
+        .mesh_car = NULL,
         .texture_asphalt = NULL,
         .bg_asphalt = NULL,
         .bg_explosion = NULL
@@ -211,30 +150,6 @@ int main() {
 
     initialize(&s);
 
-    const float vertices[VERTEX_COUNT_TOTAL * VERTEX_BUFFER_STRIDE] = {
-        // asphalt
-		-10.0f, 0.0f, -10.0f, 0.0f, 0.0f,
-		-10.0f, 0.0f, -330.0f, 0.0f, 15.0f,
-		10.0f,  0.0f, -330.0f, 1.0f, 15.0f,
-		10.0f,  0.0f, -10.0f, 1.0f, 0.0f,
-        // explosion
-        2.0f, 0.0f, -22.0f, 0.0f, 0.0f,
-        2.0f, 10.0f, -22.0f, 0.0f, 1.0f,
-        12.0f, 10.0f, -22.0f, 1.0f, 1.0f,
-        12.0f, 0.0f, -22.0f, 1.0f, 0.0f
-    };
-    s.vertex_buffer_size = sizeof(vertices);
-    wgpuQueueWriteBuffer(s.queue, s.vertex_buffer, 0, vertices, sizeof(vertices));
-
-    const int indices[INDEX_COUNT_TOTAL] = {
-        // asphalt
-        0, 1, 2,
-        0, 2, 3,
-        // explosion
-        4, 5, 6,
-        4, 6, 7
-    };
-    wgpuQueueWriteBuffer(s.queue, s.index_buffer, 0, indices, sizeof(indices));
 
     Uniforms uniform_buffer_state = {
         .time = 0,
@@ -249,7 +164,7 @@ int main() {
     uint64_t freq = SDL_GetPerformanceFrequency();
     bool running = true;
     while (running) {
-        vec3 camera_position = {o.camera_pan, 10, 0};
+        vec3 camera_position = {o.camera_pan, 0, 20};
         glm_vec3_copy(camera_position, uniform_buffer_state.camera_position);
 
         wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
@@ -265,8 +180,6 @@ int main() {
         wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
 
         _render_imgui(&o);
-
-        _update_sampler(&s, &o);
 
         _render(&s);
     }

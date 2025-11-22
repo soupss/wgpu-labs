@@ -5,6 +5,7 @@
 #include <webgpu.h>
 #include <cglm/cglm.h>
 #include "constants.h"
+#include "model.h"
 
 typedef struct State {
     SDL_Window *window;
@@ -18,7 +19,7 @@ typedef struct State {
     WGPUBuffer uniform_buffer;
     WGPUBuffer vertex_buffer;
     WGPUBuffer index_buffer;
-    size_t vertex_buffer_size;
+    Mesh mesh_car;
     WGPUTexture texture_asphalt;
     WGPUTexture texture_explosion;
     WGPUBindGroupLayout bgl;

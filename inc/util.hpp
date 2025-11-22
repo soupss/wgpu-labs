@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void load_spirv(const char* path, uint32_t** out_data, int* out_word_count);
-void print_adapter_info(WGPUAdapter adapter);
-void print_device_info(WGPUDevice device);
+void u_load_spirv(const char* path, uint32_t** out_data, int* out_word_count);
+void u_print_adapter_info(WGPUAdapter adapter);
+void u_print_device_info(WGPUDevice device);
 
 #endif

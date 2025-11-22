@@ -1,6 +1,6 @@
 #include "util.hpp"
 
-void load_spirv(const char* path, uint32_t** out_data, int* out_word_count) {
+void u_load_spirv(const char* path, uint32_t** out_data, int* out_word_count) {
     *out_data = NULL;
     if (out_word_count) {
         *out_word_count = 0;
@@ -45,7 +45,7 @@ void load_spirv(const char* path, uint32_t** out_data, int* out_word_count) {
     }
 }
 
-void print_adapter_info(WGPUAdapter adapter) {
+void u_print_adapter_info(WGPUAdapter adapter) {
     // Adapter info
     WGPUAdapterInfo info = {};
     if (wgpuAdapterGetInfo(adapter, &info) == WGPUStatus_Success) {
@@ -87,7 +87,7 @@ void print_adapter_info(WGPUAdapter adapter) {
     printf("========================\n");
 }
 
-void print_device_info(WGPUDevice device) {
+void u_print_device_info(WGPUDevice device) {
     // --- Device features
     WGPUSupportedFeatures dfeatures = (WGPUSupportedFeatures){};
     wgpuDeviceGetFeatures(device, &dfeatures);
