@@ -16,22 +16,25 @@ typedef struct State {
     WGPUSurface surface;
     WGPURenderPipeline pipeline;
     WGPUQueue queue;
-    WGPUBuffer uniform_buffer;
-    WGPUBuffer vertex_buffer;
-    WGPUBuffer index_buffer;
+    WGPUBindGroup bg;
+    WGPUBuffer ubo_object;
+    WGPUBuffer ubo_frame;
+    // TODO: buf
+    WGPUBuffer vbo_car;
+    WGPUBuffer vbo_city;
+    WGPUBuffer ibo_car;
+    WGPUBuffer ibo_city;
     Mesh mesh_car;
-    WGPUTexture texture_asphalt;
-    WGPUTexture texture_explosion;
-    WGPUBindGroupLayout bgl;
-    WGPUBindGroupEntry bg_asphalt_entries[BG_ENTRY_COUNT];
-    WGPUBindGroup bg_asphalt;
-    WGPUBindGroup bg_explosion;
+    Mesh mesh_city;
 } State;
 
-typedef struct Uniforms {
+typedef struct UBOData_Frame {
+    mat4 view_projection;
     float time;
-    mat4 projection_matrix;
-    vec3 camera_position;
-} Uniforms;
+} UBOData_Frame;
+
+typedef struct UBOData_Object {
+    mat4 model;
+} UBOData_Object;
 
 #endif

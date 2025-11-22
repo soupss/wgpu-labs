@@ -49,7 +49,7 @@ void _render(State *s) {
         .aspect = WGPUTextureAspect_All,
         .usage = WGPUTextureUsage_RenderAttachment
     };
-    WGPUTextureView texture_view = texture_view = wgpuTextureCreateView(surface_texture.texture, &view_desc);
+    WGPUTextureView texture_view = wgpuTextureCreateView(surface_texture.texture, &view_desc);
 
     WGPURenderPassColorAttachment render_pass_color_attachment = {
         .view = texture_view,
@@ -71,14 +71,26 @@ void _render(State *s) {
 
     wgpuRenderPassEncoderSetPipeline(render_pass, s->pipeline);
 
-    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vertex_buffer, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vbo_car, 0, WGPU_WHOLE_SIZE);
     wgpuRenderPassEncoderSetIndexBuffer(render_pass,
-            s->index_buffer,
+            s->ibo_car,
             WGPUIndexFormat_Uint32,
             0,
             s->mesh_car.index_count * sizeof(int));
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_asphalt, 0, NULL);
+    unsigned int offset = 0;
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg, 1, &offset);
     wgpuRenderPassEncoderDrawIndexed(render_pass, s->mesh_car.index_count, 1, 0, 0, 0);
+
+    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vbo_city, 0, WGPU_WHOLE_SIZE);
+    wgpuRenderPassEncoderSetIndexBuffer(render_pass,
+            s->ibo_city,
+            WGPUIndexFormat_Uint32,
+            0,
+            s->mesh_city.index_count * sizeof(int));
+    offset = UBO_OBJECT_SLOT_SIZE;
+
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg, 1, &offset);
+    wgpuRenderPassEncoderDrawIndexed(render_pass, s->mesh_city.index_count, 1, 0, 0, 0);
 
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
 
@@ -110,11 +122,8 @@ void _terminate(State *s) {
     SDL_Quit();
 
     wgpuSurfaceRelease(s->surface);
-    wgpuBufferRelease(s->vertex_buffer);
-    wgpuBufferRelease(s->uniform_buffer);
-    wgpuBindGroupLayoutRelease(s->bgl);
-    wgpuBindGroupRelease(s->bg_asphalt);
-    wgpuBindGroupRelease(s->bg_explosion);
+    wgpuBufferRelease(s->vbo_car);
+    wgpuBindGroupRelease(s->bg);
     wgpuAdapterRelease(s->adapter);
     wgpuDeviceRelease(s->device);
     wgpuInstanceRelease(s->instance);
@@ -122,23 +131,7 @@ void _terminate(State *s) {
 }
 
 int main() {
-    State s = {
-        .window = NULL,
-        .metal_view = NULL,
-        .adapter = NULL,
-        .device = NULL,
-        .instance = NULL,
-        .surface = NULL,
-        .pipeline = NULL,
-        .queue = NULL,
-        .uniform_buffer = NULL,
-        .vertex_buffer = NULL,
-        .index_buffer = NULL,
-        .mesh_car = NULL,
-        .texture_asphalt = NULL,
-        .bg_asphalt = NULL,
-        .bg_explosion = NULL
-    };
+    State s = {0};
 
     Options o = {
         .camera_pan = 0.0,
@@ -150,34 +143,51 @@ int main() {
 
     initialize(&s);
 
+    UBOData_Frame ubo_data_frame = {0};
 
-    Uniforms uniform_buffer_state = {
-        .time = 0,
-    };
+    mat4 view = GLM_MAT4_IDENTITY_INIT;
+    vec3 camera_pos = {15.0f, 15.0f, 15.0f};
+    vec3 camera_dir = {-1.0f, -1.0f, -1.0f};
+    vec3 up = {0.0f, 1.0f, 0.0f};
+    glm_lookat(camera_pos, camera_dir, up, view);
 
-    float fovy = GLM_PI/4;
+    mat4 projection = GLM_MAT4_IDENTITY_INIT;
+    float fovy = 45.0;
     float aspect_ratio = (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT;
     float near_plane = 0.01f;
-    float far_plane = 400.0f;
-    glm_perspective(fovy, aspect_ratio, near_plane, far_plane, uniform_buffer_state.projection_matrix);
+    float far_plane = 300.0f;
+    glm_perspective(fovy, aspect_ratio, near_plane, far_plane, projection);
+
+    glm_mat4_mul(projection, view, ubo_data_frame.view_projection);
+
+    UBOData_Object ubo_data_car = {
+        .model = GLM_MAT4_IDENTITY_INIT
+    };
+    glm_translate(ubo_data_car.model, (vec3){0.0, 5.0, 0.0});
+
+    UBOData_Object ubo_data_city = {
+        .model = GLM_MAT4_IDENTITY_INIT
+    };
+    glm_translate(ubo_data_city.model, (vec3){0.0, 0.0, 0.0});
 
     uint64_t freq = SDL_GetPerformanceFrequency();
     bool running = true;
     while (running) {
-        vec3 camera_position = {o.camera_pan, 0, 20};
-        glm_vec3_copy(camera_position, uniform_buffer_state.camera_position);
-
-        wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
-
+        // events
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = false;
             ImGui_ImplSDL3_ProcessEvent(&e);
         }
+        // calculations
 
-        float time = (float)(SDL_GetPerformanceCounter() / (float)freq);
-        uniform_buffer_state.time = time;
-        wgpuQueueWriteBuffer(s.queue, s.uniform_buffer, 0, &uniform_buffer_state, sizeof(Uniforms));
+        ubo_data_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
+
+        wgpuQueueWriteBuffer(s.queue, s.ubo_frame, 0, &ubo_data_frame, sizeof(UBOData_Frame));
+        wgpuQueueWriteBuffer(s.queue, s.ubo_object, 0, &ubo_data_car, sizeof(UBOData_Object));
+        wgpuQueueWriteBuffer(s.queue, s.ubo_object, UBO_OBJECT_SLOT_SIZE, &ubo_data_city, sizeof(UBOData_Object));
+
+        // render
 
         _render_imgui(&o);
 

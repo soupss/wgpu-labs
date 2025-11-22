@@ -1,9 +1,12 @@
 #version 450
 
-layout(set = 0, binding = 0) uniform Uniforms {
+layout(set = 0, binding = 0) uniform frame {
+    mat4 u_view_projection;
     float u_time;
-    mat4 u_projection_matrix;
-    vec3 u_camera_position;
+};
+
+layout(set = 0, binding = 1) uniform object {
+    mat4 u_model;
 };
 
 layout(location = 0) in vec3 a_pos;
@@ -16,15 +19,7 @@ void main()
 {
     float t = u_time;
 
-    mat3 rot = mat3(
-            1.0, 0.0, 0.0,
-            0.0, 0.97, 0.26,
-            0.0, -0.26, 0.97
-            );
-
-    vec3 pos = vec3((rot * a_pos) - u_camera_position);
-
-    gl_Position = u_projection_matrix * vec4(pos, 1.0);
+    gl_Position = u_view_projection * u_model * vec4(a_pos, 1.0);
 
     v_uv = a_uv;
 }
