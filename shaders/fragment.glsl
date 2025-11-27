@@ -35,5 +35,6 @@ void main()
     vec4 c = vec4(diffuse_sample.rgb * diffuse.rgb, diffuse_sample.a);
 
 	const vec3 lightDir = normalize(vec3(-0.74, -1, 0.68));
-	color = c * max(dot(n, -lightDir), 0.3);
+	// color = c * max(dot(n, -lightDir), 0.3);
+    color = vec4(diffuse.rgb, 1.0);
 }

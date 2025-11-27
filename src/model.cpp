@@ -234,7 +234,9 @@ void model_load(const WGPUDevice device, const WGPUQueue queue, WGPUBindGroupLay
             }
         };
 
+        dst->name = src->name;
         WGPUBindGroupDescriptor bg_desc = {
+            .label = src->name,
             .entryCount = BG_MODEL_ENTRY_COUNT,
             .entries = bg_entries,
             .layout = bgl_model
@@ -298,7 +300,8 @@ void model_load(const WGPUDevice device, const WGPUQueue queue, WGPUBindGroupLay
         model->meshes[i].i_start = i_start;
         model->meshes[i].i_count = i_count;
         int first_face = shapes[i].face_offset;
-        model->meshes[i].i_material = attrib.material_ids[first_face];
+        int index = attrib.material_ids[first_face];
+        model->meshes[i].i_material = index;
     }
     free(prefix);
 }

@@ -9,10 +9,10 @@ typedef struct {
     WGPUTexture texture;
     WGPUTextureView view;
     WGPUSampler sampler;
-    bool valid;
 } TextureMap;
 
 typedef struct {
+    const char *name;
     float ambient[4];
     float diffuse[4];
     float specular[4];
