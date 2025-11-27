@@ -4,10 +4,11 @@
 #include <SDL3/SDL.h>
 #include <webgpu.h>
 #include <cglm/cglm.h>
-#include "constants.h"
 #include "model.h"
+#include "camera.h"
 
-typedef struct State {
+//TODO: camera type
+typedef struct {
     SDL_Window *window;
     SDL_MetalView metal_view;
     WGPUAdapter adapter;
@@ -15,25 +16,22 @@ typedef struct State {
     WGPUInstance instance;
     WGPUSurface surface;
     WGPURenderPipeline pipeline;
+    Camera camera;
     WGPUQueue queue;
     WGPUBindGroup bg;
     WGPUBuffer ubo_object;
     WGPUBuffer ubo_frame;
-    // TODO: buf
-    WGPUBuffer vbo_car;
-    WGPUBuffer vbo_city;
-    WGPUBuffer ibo_car;
-    WGPUBuffer ibo_city;
-    Mesh mesh_car;
-    Mesh mesh_city;
+    Model model_car;
+    Model model_city;
 } State;
 
-typedef struct UBOData_Frame {
+//TODO:camera ubo
+typedef struct {
     mat4 view_projection;
     float time;
 } UBOData_Frame;
 
-typedef struct UBOData_Object {
+typedef struct {
     mat4 model;
 } UBOData_Object;
 

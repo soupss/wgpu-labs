@@ -8,6 +8,7 @@
 #define PATH_TEXTURE_EXPLOSION "assets/textures/explosion.png"
 #define PATH_MODEL_CAR "assets/models/car.obj"
 #define PATH_MODEL_CITY "assets/models/city.obj"
+#define DIR_CITY_TEXTURES "assets/textures/city/"
 
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
@@ -20,6 +21,7 @@
 #define UBO_OBJECT_SIZE (UBO_OBJECT_SLOT_SIZE * UBO_OBJECT_SLOT_COUNT)
 
 #define BG_ENTRY_COUNT 3
+#define BG_MODEL_ENTRY_COUNT 3
 #define BG_COMP_ENTRY_COUNT 4
 
 #endif

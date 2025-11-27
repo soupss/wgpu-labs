@@ -9,8 +9,9 @@
 #include "constants.h"
 #include "init.hpp"
 #include "state.h"
+#include "camera.h"
 
-typedef struct Options {
+typedef struct {
     float camera_pan;
     int mag_filter;
     int min_filter;
@@ -24,6 +25,76 @@ void _render_imgui(Options *o) {
     ImGui::NewFrame();
 
     ImGui::Render();
+}
+
+void _update(State *s, bool *running) {
+    SDL_Event e;
+
+    const float sens_rot = 0.0015;
+    const float sens_zoom = 2.0;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE)) {
+            *running = false;
+        }
+
+        if (e.type == SDL_EVENT_MOUSE_WHEEL) {
+            int dir;
+            if (e.wheel.y > 0) dir = 1;
+            if (e.wheel.y < 0) dir = -1;
+            s->camera.distance += dir * sens_zoom;
+        }
+
+        if (e.type == SDL_EVENT_MOUSE_MOTION) {
+            s->camera.yaw += e.motion.xrel * sens_rot;
+            s->camera.pitch -= e.motion.yrel * sens_rot;
+        }
+    }
+    const float sens_move = 0.5;
+    float forward = 0, right = 0, up = 0;
+    const bool *keys = SDL_GetKeyboardState(NULL);
+    float dir[3];
+    if (keys[SDL_SCANCODE_W]) {
+        forward = sens_move;
+    }
+    if (keys[SDL_SCANCODE_A]) {
+        right = -sens_move;
+    }
+    if (keys[SDL_SCANCODE_S]) {
+        forward = -sens_move;
+    }
+    if (keys[SDL_SCANCODE_D]) {
+        right = sens_move;
+    }
+    if (keys[SDL_SCANCODE_SPACE]) {
+        up = sens_move;
+    }
+    if (keys[SDL_SCANCODE_LCTRL]) {
+        up = -sens_move;
+    }
+
+    ImGui_ImplSDL3_ProcessEvent(&e);
+
+    camera_move(&s->camera, forward, right, up);
+
+    UBOData_Frame ubo_data_frame = {0};
+    camera_get_view_projection(&s->camera, ubo_data_frame.view_projection);
+
+    UBOData_Object ubo_data_car = {
+        .model = GLM_MAT4_IDENTITY_INIT
+    };
+    glm_translate(ubo_data_car.model, (vec3){0.0, 5.0, 0.0});
+
+    UBOData_Object ubo_data_city = {
+        .model = GLM_MAT4_IDENTITY_INIT
+    };
+    glm_translate(ubo_data_city.model, (vec3){0.0, 0.0, 0.0});
+
+    uint64_t freq = SDL_GetPerformanceFrequency();
+    ubo_data_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
+
+    wgpuQueueWriteBuffer(s->queue, s->ubo_frame, 0, &ubo_data_frame, sizeof(UBOData_Frame));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_object, 0, &ubo_data_car, sizeof(UBOData_Object));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_object, UBO_OBJECT_SLOT_SIZE, &ubo_data_city, sizeof(UBOData_Object));
 }
 
 void _render(State *s) {
@@ -57,40 +128,47 @@ void _render(State *s) {
         .loadOp = WGPULoadOp_Clear,
         .storeOp = WGPUStoreOp_Store,
         .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
-        .clearValue = WGPUColor{ 0.5, 0.5, 0.5, 1.0 }
+        .clearValue = WGPUColor{ 0.1, 0.1, 0.1, 1.0 }
+    };
+
+    WGPUTextureDescriptor depth_desc = {
+        .usage = WGPUTextureUsage_RenderAttachment,
+        .size = { WINDOW_WIDTH, WINDOW_HEIGHT, 1 },
+        .format = WGPUTextureFormat_Depth24Plus,
+        .mipLevelCount = 1,
+        .sampleCount = 1,
+        .dimension = WGPUTextureDimension_2D,
+    };
+    WGPUTexture depthTex = wgpuDeviceCreateTexture(s->device, &depth_desc);
+    WGPUTextureView depthView = wgpuTextureCreateView(depthTex, NULL);
+
+    WGPURenderPassDepthStencilAttachment ds_att = {
+        .view = depthView,
+        .depthLoadOp = WGPULoadOp_Clear,
+        .depthStoreOp = WGPUStoreOp_Store,
+        .depthClearValue = 1.0f,
     };
 
     WGPURenderPassDescriptor render_pass_desc = {
         .nextInChain = NULL,
         .colorAttachmentCount = 1,
-        .colorAttachments = &render_pass_color_attachment
+        .colorAttachments = &render_pass_color_attachment,
+        .depthStencilAttachment = &ds_att
     };
+
 
     // begin render pass
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_desc);
 
     wgpuRenderPassEncoderSetPipeline(render_pass, s->pipeline);
 
-    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vbo_car, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(render_pass,
-            s->ibo_car,
-            WGPUIndexFormat_Uint32,
-            0,
-            s->mesh_car.index_count * sizeof(int));
-    unsigned int offset = 0;
+    uint32_t offset = 0;
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg, 1, &offset);
-    wgpuRenderPassEncoderDrawIndexed(render_pass, s->mesh_car.index_count, 1, 0, 0, 0);
+    model_render(&s->model_car, render_pass);
 
-    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, s->vbo_city, 0, WGPU_WHOLE_SIZE);
-    wgpuRenderPassEncoderSetIndexBuffer(render_pass,
-            s->ibo_city,
-            WGPUIndexFormat_Uint32,
-            0,
-            s->mesh_city.index_count * sizeof(int));
     offset = UBO_OBJECT_SLOT_SIZE;
-
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg, 1, &offset);
-    wgpuRenderPassEncoderDrawIndexed(render_pass, s->mesh_city.index_count, 1, 0, 0, 0);
+    model_render(&s->model_city, render_pass);
 
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
 
@@ -110,6 +188,8 @@ void _render(State *s) {
     wgpuSurfacePresent(s->surface);
 
     wgpuTextureViewRelease(texture_view);
+    wgpuTextureViewRelease(depthView);
+    wgpuTextureRelease(depthTex);
 }
 
 void _terminate(State *s) {
@@ -122,7 +202,6 @@ void _terminate(State *s) {
     SDL_Quit();
 
     wgpuSurfaceRelease(s->surface);
-    wgpuBufferRelease(s->vbo_car);
     wgpuBindGroupRelease(s->bg);
     wgpuAdapterRelease(s->adapter);
     wgpuDeviceRelease(s->device);
@@ -131,7 +210,15 @@ void _terminate(State *s) {
 }
 
 int main() {
-    State s = {0};
+    State s = {
+        .camera = {
+            .pos = {15, 15, 15},
+            .target = {-1, -1, -1},
+            .yaw = 0.0,
+            .pitch = 0.0,
+            .distance = 25.0
+        }
+    };
 
     Options o = {
         .camera_pan = 0.0,
@@ -143,51 +230,9 @@ int main() {
 
     initialize(&s);
 
-    UBOData_Frame ubo_data_frame = {0};
-
-    mat4 view = GLM_MAT4_IDENTITY_INIT;
-    vec3 camera_pos = {15.0f, 15.0f, 15.0f};
-    vec3 camera_dir = {-1.0f, -1.0f, -1.0f};
-    vec3 up = {0.0f, 1.0f, 0.0f};
-    glm_lookat(camera_pos, camera_dir, up, view);
-
-    mat4 projection = GLM_MAT4_IDENTITY_INIT;
-    float fovy = 45.0;
-    float aspect_ratio = (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT;
-    float near_plane = 0.01f;
-    float far_plane = 300.0f;
-    glm_perspective(fovy, aspect_ratio, near_plane, far_plane, projection);
-
-    glm_mat4_mul(projection, view, ubo_data_frame.view_projection);
-
-    UBOData_Object ubo_data_car = {
-        .model = GLM_MAT4_IDENTITY_INIT
-    };
-    glm_translate(ubo_data_car.model, (vec3){0.0, 5.0, 0.0});
-
-    UBOData_Object ubo_data_city = {
-        .model = GLM_MAT4_IDENTITY_INIT
-    };
-    glm_translate(ubo_data_city.model, (vec3){0.0, 0.0, 0.0});
-
-    uint64_t freq = SDL_GetPerformanceFrequency();
     bool running = true;
     while (running) {
-        // events
-        SDL_Event e;
-        while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_EVENT_QUIT) running = false;
-            ImGui_ImplSDL3_ProcessEvent(&e);
-        }
-        // calculations
-
-        ubo_data_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
-
-        wgpuQueueWriteBuffer(s.queue, s.ubo_frame, 0, &ubo_data_frame, sizeof(UBOData_Frame));
-        wgpuQueueWriteBuffer(s.queue, s.ubo_object, 0, &ubo_data_car, sizeof(UBOData_Object));
-        wgpuQueueWriteBuffer(s.queue, s.ubo_object, UBO_OBJECT_SLOT_SIZE, &ubo_data_city, sizeof(UBOData_Object));
-
-        // render
+        _update(&s, &running);
 
         _render_imgui(&o);
 

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+void u_get_texture_path(char *out, size_t cap, const char *dir, const char *filename);
 void u_load_spirv(const char* path, uint32_t** out_data, int* out_word_count);
 void u_print_adapter_info(WGPUAdapter adapter);
 void u_print_device_info(WGPUDevice device);

@@ -1,4 +1,28 @@
-#include "util.hpp"
+#include "util.h"
+
+#include <stdio.h>
+#include <string.h>
+
+void u_get_texture_path(char *out, size_t cap, const char *dir, const char *filename) {
+    if (!out || !dir || !filename) return;
+
+    // 1. Find the last slash or backslash in filename
+    const char *name = strrchr(filename, '\\');
+    if (!name) name = strrchr(filename, '/');
+
+    // 2. Move past the slash if found
+    if (name)
+        name++;
+    else
+        name = filename;
+
+    // 3. Join dir + name with exactly one slash
+    size_t dir_len = strlen(dir);
+    if (dir_len > 0 && dir[dir_len - 1] == '/')
+        snprintf(out, cap, "%s%s", dir, name);
+    else
+        snprintf(out, cap, "%s/%s", dir, name);
+}
 
 void u_load_spirv(const char* path, uint32_t** out_data, int* out_word_count) {
     *out_data = NULL;

@@ -2,15 +2,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <webgpu.h>
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_wgpu.h>
 #include "constants.h"
-#include "util.hpp"
+#include "util.h"
 #include "model.h"
+#include "camera.h"
 
-typedef struct AdapterRequest {
+typedef struct {
     WGPUAdapter *adapter;
     bool request_ended;
 } AdapterRequest;
@@ -37,7 +36,7 @@ void _on_adapter_request_ended(
     }
 }
 
-typedef struct DeviceRequest {
+typedef struct {
     WGPUDevice *device;
     bool request_ended;
 } DeviceRequest;
@@ -124,7 +123,7 @@ static void _generate_mipmaps(WGPUDevice device, WGPUShaderModule module, WGPUSa
 
     WGPUQueue queue = wgpuDeviceGetQueue(device);
 
-    typedef struct UniformSrcDim{
+    typedef struct {
         int texview_src_width;
         int texview_src_height;
     } UniformSrcDim;
@@ -241,6 +240,7 @@ void initialize(State *s) {
     s->window = SDL_CreateWindow("a", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_METAL);
     s->metal_view = SDL_Metal_CreateView(s->window);
     void* metal_layer = SDL_Metal_GetLayer(s->metal_view);
+    SDL_SetWindowRelativeMouseMode(s->window, true);
 
     WGPUInstanceDescriptor instance_desc = {
         .nextInChain= NULL
@@ -404,20 +404,61 @@ void initialize(State *s) {
             .binding = 2,
             .visibility = WGPUShaderStage_Fragment,
             .sampler.type = WGPUSamplerBindingType_Filtering
-        }
+        },
     };
 
     WGPUBindGroupLayoutDescriptor bgl_desc = {
+        .label = {
+            .data = "bgl",
+            .length = WGPU_STRLEN
+        },
         .nextInChain = NULL,
         .entryCount = BG_ENTRY_COUNT,
         .entries = bgl_entries
     };
-    WGPUBindGroupLayout bgl  = wgpuDeviceCreateBindGroupLayout(s->device, &bgl_desc);
+
+    WGPUBindGroupLayout bgls[2];
+    bgls[0] = wgpuDeviceCreateBindGroupLayout(s->device, &bgl_desc);
+
+    WGPUBindGroupLayoutEntry bgl_model_entries[BG_MODEL_ENTRY_COUNT] = {
+        {
+            .binding = 0,
+            .visibility = WGPUShaderStage_Fragment,
+            .buffer.type = WGPUBufferBindingType_Uniform,
+        },
+        {
+            .binding = 1,
+            .visibility = WGPUShaderStage_Fragment,
+            .texture = {
+                .sampleType = WGPUTextureSampleType_Float,
+                .viewDimension = WGPUTextureViewDimension_2D,
+                .multisampled = false,
+
+            },
+        },
+        {
+            .binding = 2,
+            .visibility = WGPUShaderStage_Fragment,
+            .sampler.type = WGPUSamplerBindingType_Filtering
+        }
+    };
+
+    WGPUBindGroupLayoutDescriptor bgl_model_desc = {
+        .label = {
+            .data = "bgl_model",
+            .length = WGPU_STRLEN
+        },
+        .nextInChain = NULL,
+        .entryCount = BG_MODEL_ENTRY_COUNT,
+        .entries = bgl_model_entries
+    };
+
+    bgls[1] = wgpuDeviceCreateBindGroupLayout(s->device, &bgl_model_desc);
 
     WGPUPipelineLayoutDescriptor pipeline_layout_desc = {
         .nextInChain = NULL,
-        .bindGroupLayoutCount = 1,
-        .bindGroupLayouts = &(bgl)
+        .bindGroupLayoutCount = 2,
+        .bindGroupLayouts = bgls
     };
     WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(s->device, &pipeline_layout_desc);
 
@@ -425,64 +466,8 @@ void initialize(State *s) {
     // === BUFFERS ===
     // ===============
 
-    model_load(PATH_MODEL_CAR, &s->mesh_car);
-    model_load(PATH_MODEL_CITY, &s->mesh_city);
-
-    WGPUBufferDescriptor vbo_car_desc = {
-        .nextInChain = NULL,
-        .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
-        .size = s->mesh_car.vertex_count * VBO_STRIDE,
-        .mappedAtCreation = false
-    };
-    s->vbo_car = wgpuDeviceCreateBuffer(s->device, &vbo_car_desc);
-
-    wgpuQueueWriteBuffer(s->queue,
-            s->vbo_car,
-            0,
-            s->mesh_car.vertices,
-            s->mesh_car.vertex_count * VBO_STRIDE);
-
-    WGPUBufferDescriptor vbo_city_desc = {
-        .nextInChain = NULL,
-        .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
-        .size = s->mesh_city.vertex_count * VBO_STRIDE,
-        .mappedAtCreation = false
-    };
-    s->vbo_city = wgpuDeviceCreateBuffer(s->device, &vbo_city_desc);
-
-    wgpuQueueWriteBuffer(s->queue,
-            s->vbo_city,
-            0,
-            s->mesh_city.vertices,
-            s->mesh_city.vertex_count * VBO_STRIDE);
-
-    WGPUBufferDescriptor ibo_car_desc = {
-        .nextInChain = NULL,
-        .usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst,
-        .size = s->mesh_car.index_count * sizeof(int),
-        .mappedAtCreation = false
-    };
-    s->ibo_car = wgpuDeviceCreateBuffer(s->device, &ibo_car_desc);
-
-    wgpuQueueWriteBuffer(s->queue,
-            s->ibo_car,
-            0,
-            s->mesh_car.indices,
-            s->mesh_car.index_count * sizeof(int));
-
-    WGPUBufferDescriptor ibo_city_desc = {
-        .nextInChain = NULL,
-        .usage = WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst,
-        .size = s->mesh_city.index_count * sizeof(int),
-        .mappedAtCreation = false
-    };
-    s->ibo_city = wgpuDeviceCreateBuffer(s->device, &ibo_city_desc);
-
-    wgpuQueueWriteBuffer(s->queue,
-            s->ibo_city,
-            0,
-            s->mesh_city.indices,
-            s->mesh_city.index_count * sizeof(int));
+    model_load(s->device, s->queue, bgls[1], &s->model_car, PATH_MODEL_CAR, NULL);
+    model_load(s->device, s->queue, bgls[1], &s->model_city, PATH_MODEL_CITY, DIR_CITY_TEXTURES);
 
     WGPUBufferDescriptor ubo_frame_desc = {
         .nextInChain = NULL,
@@ -542,19 +527,19 @@ void initialize(State *s) {
         }
     };
 
-    WGPUBindGroupDescriptor bg = {
+    WGPUBindGroupDescriptor bg_desc = {
         .nextInChain = NULL,
-        .layout = bgl,
+        .layout = bgls[0],
         .entryCount = BG_ENTRY_COUNT,
         .entries = bg_entries
     };
-    s->bg = wgpuDeviceCreateBindGroup(s->device, &bg);
+    s->bg = wgpuDeviceCreateBindGroup(s->device, &bg_desc);
 
     // ================
     // === PIPELINE ===
     // ================
 
-    WGPUVertexAttribute vertex_attributes[VERTEX_ATTRIBUTE_COUNT] = {
+    WGPUVertexAttribute vertex_attributes[VERTEX_ATTRIBUTE_COUNT] = { // TODO: magic number
         {
             .format = WGPUVertexFormat_Float32x3,
             .offset = 0,
@@ -572,9 +557,9 @@ void initialize(State *s) {
         }
     };
 
-    WGPUVertexBufferLayout vbo_car_layout = {
+    WGPUVertexBufferLayout vbo_layout = {
         .stepMode = WGPUVertexStepMode_Vertex,
-        .arrayStride = VBO_STRIDE,
+        .arrayStride = (3 + 3 + 2) * sizeof(float),
         .attributeCount = VERTEX_ATTRIBUTE_COUNT,
         .attributes = vertex_attributes
     };
@@ -606,6 +591,12 @@ void initialize(State *s) {
         .targets = &color_target,
     };
 
+    WGPUDepthStencilState ds = {
+        .format = WGPUTextureFormat_Depth24Plus,
+        .depthWriteEnabled = WGPUOptionalBool_True,
+        .depthCompare = WGPUCompareFunction_Less,
+    };
+
     WGPURenderPipelineDescriptor pipeline_desc = {
         .nextInChain = NULL,
 
@@ -616,18 +607,18 @@ void initialize(State *s) {
         .vertex.constantCount = 0,
         .vertex.constants = NULL,
         .vertex.bufferCount = 1,
-        .vertex.buffers = &vbo_car_layout,
+        .vertex.buffers = &vbo_layout,
         .vertex.module = vertex_shader_module,
 
         .primitive.topology = WGPUPrimitiveTopology_TriangleList,
         .primitive.stripIndexFormat = WGPUIndexFormat_Undefined,
         .primitive.frontFace = WGPUFrontFace_CCW,
-        .primitive.cullMode = WGPUCullMode_Front,
+        .primitive.cullMode = WGPUCullMode_None,
 
         .fragment = &fragment_state,
 
         .layout = pipeline_layout,
-        .depthStencil = NULL,
+        .depthStencil = &ds,
         .multisample.count = 1,
         .multisample.mask = ~0u,
         .multisample.alphaToCoverageEnabled = false,
