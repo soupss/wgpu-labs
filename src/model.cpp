@@ -161,7 +161,6 @@ static void _texturemap_load(const WGPUDevice device, const WGPUQueue queue, Tex
         .lodMaxClamp = 1000.0f,
         .maxAnisotropy = 1
     };
-
     tm->sampler = wgpuDeviceCreateSampler(device, &sampler_desc);
 }
 
@@ -204,10 +203,10 @@ void model_load(const WGPUDevice device, const WGPUQueue queue, WGPUBindGroupLay
         dst->illumination = src->illum;
 
         TextureMap *tm = &dst->diffuse_map;
-        char path_tex[1024];
+        char path_diffusemap[1024];
 
-        u_get_texture_path(path_tex, sizeof(path_tex), path_textures, src->diffuse_texname);
-        _texturemap_load(device, queue, tm, path_tex);
+        u_get_texture_path(path_diffusemap, sizeof(path_diffusemap), path_textures, src->diffuse_texname);
+        _texturemap_load(device, queue, tm, path_diffusemap);
 
         WGPUBufferDescriptor buf_desc = {
             .size = sizeof(Material),
@@ -291,18 +290,41 @@ void model_load(const WGPUDevice device, const WGPUQueue queue, WGPUBindGroupLay
     // create meshes //
     ///////////////////
 
-    model->mesh_count = shape_count;
-    model->meshes = (Mesh*)malloc(shape_count * sizeof(Mesh));
-    for (int i = 0; i < shape_count; i++) {
-        tinyobj_shape_t *s = &shapes[i];
-        int i_start = prefix[s->face_offset];
-        int i_count = prefix[s->face_offset + s->length] - i_start;
-        model->meshes[i].i_start = i_start;
-        model->meshes[i].i_count = i_count;
-        int first_face = shapes[i].face_offset;
-        int index = attrib.material_ids[first_face];
-        model->meshes[i].i_material = index;
+    model->mesh_count = 0;
+    if (attrib.num_face_num_verts > 0) {
+        model->mesh_count = 1;
+        int last_material_id = attrib.material_ids[0];
+        for (unsigned int i = 1; i < attrib.num_face_num_verts; i++) {
+            if (attrib.material_ids[i] != last_material_id) {
+                model->mesh_count++;
+                last_material_id = attrib.material_ids[i];
+            }
+        }
     }
+
+    model->meshes = (Mesh*)malloc(model->mesh_count * sizeof(Mesh));
+
+    int current_mesh = 0;
+    int last_material_id = attrib.material_ids[0];
+    unsigned int mesh_start_face = 0;
+
+    for (unsigned int i = 1; i < face_count; i++) {
+        if (attrib.material_ids[i] != last_material_id) {
+            Mesh *mesh = &model->meshes[current_mesh];
+            mesh->i_material = last_material_id;
+            mesh->i_start = prefix[mesh_start_face];
+            mesh->i_count = prefix[i] - prefix[mesh_start_face];
+            current_mesh++;
+            last_material_id = attrib.material_ids[i];
+            mesh_start_face = i;
+        }
+
+        Mesh *mesh = &model->meshes[current_mesh];
+        mesh->i_material = last_material_id;
+        mesh->i_start = prefix[mesh_start_face];
+        mesh->i_count = prefix[attrib.num_face_num_verts] - prefix[mesh_start_face];
+    }
+
     free(prefix);
 }
 

@@ -613,7 +613,7 @@ void initialize(State *s) {
         .primitive.topology = WGPUPrimitiveTopology_TriangleList,
         .primitive.stripIndexFormat = WGPUIndexFormat_Undefined,
         .primitive.frontFace = WGPUFrontFace_CCW,
-        .primitive.cullMode = WGPUCullMode_None,
+        .primitive.cullMode = WGPUCullMode_Back,
 
         .fragment = &fragment_state,
 
