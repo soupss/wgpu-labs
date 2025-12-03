@@ -2,8 +2,6 @@
 #include "constants.h"
 
 void camera_get_view_projection(Camera *cam, mat4 out) {
-    // calculate direction
-
     mat4 view = GLM_MAT4_IDENTITY_INIT;
     vec3 up = {0.0, 1.0, 0.0};
     glm_lookat(cam->pos,  cam->target, up, view);

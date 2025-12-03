@@ -16,8 +16,8 @@ layout(set = 1, binding = 0) uniform material {
     float dissolve;
     uint illumination;
 };
-layout(set = 1, binding = 1) uniform texture2D u_diffuse;
-layout(set = 1, binding = 2) uniform sampler u_sampler_diffuse;
+layout(set = 1, binding = 1) uniform texture2D u_diffuse_map;
+layout(set = 1, binding = 2) uniform texture2D u_emission_map;
 
 layout(location = 0) in vec3 v_norm;
 layout(location = 1) in vec2 v_uv;
@@ -30,11 +30,12 @@ void main()
 
     float t = u_time;
 
-    vec4 diffuse_sample = texture(sampler2D(u_diffuse, u_sampler_diffuse), v_uv);
-
-    vec4 c = vec4(diffuse_sample.rgb * diffuse.rgb, diffuse_sample.a);
-
+    vec4 diffuse_map_color = texture(sampler2D(u_diffuse_map, u_sampler), v_uv);
 	const vec3 lightDir = normalize(vec3(-0.74, -1, 0.68));
-	color = c * max(dot(n, -lightDir), 0.3);
-    // color = vec4(diffuse.rgb, 1.0);
+    vec4 diffuse_tot = max(dot(n, -lightDir), 0.3) * diffuse_map_color * diffuse;
+
+    vec4 emission_map_color = texture(sampler2D(u_emission_map, u_sampler), v_uv);
+    vec4 emission_tot = emission_map_color * emission;
+
+	color = diffuse_tot + emission_tot;
 }

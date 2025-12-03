@@ -5,26 +5,18 @@
 #include <webgpu.h>
 #include <cglm/cglm.h>
 
+//TODO: struct needed ? rename to texture?
 typedef struct {
     WGPUTexture texture;
     WGPUTextureView view;
-    WGPUSampler sampler;
+    char *name;
 } TextureMap;
 
 typedef struct {
-    const char *name;
-    float ambient[4];
-    float diffuse[4];
-    float specular[4];
-    float emission[4];
-    float shininess;
-    float refraction;
-    float dissolve;
-    unsigned int illumination;
     WGPUBindGroup bg;
-
     TextureMap diffuse_map;
     TextureMap emission_map;
+    char *name;
 } Material;
 
 typedef struct {

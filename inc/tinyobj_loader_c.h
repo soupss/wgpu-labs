@@ -54,6 +54,7 @@ typedef struct {
   char *bump_texname;               /* map_bump, bump */
   char *displacement_texname;       /* disp */
   char *alpha_texname;              /* map_d */
+  char *emission_texname;           /* map_Ke */
 } tinyobj_material_t;
 
 typedef struct {
@@ -585,6 +586,7 @@ static void initMaterial(tinyobj_material_t *material) {
   material->bump_texname = NULL;
   material->displacement_texname = NULL;
   material->alpha_texname = NULL;
+  material->emission_texname = NULL;
   for (i = 0; i < 3; i++) {
     material->ambient[i] = 0.f;
     material->diffuse[i] = 0.f;
@@ -1057,6 +1059,13 @@ static int tinyobj_parse_and_index_mtl_file(tinyobj_material_t **materials_out,
     if ((0 == strncmp(token, "map_d", 5)) && IS_SPACE(token[5])) {
       token += 6;
       material.alpha_texname = my_strdup(token, (size_t) (line_end - token));
+      continue;
+    }
+
+    /* emission texture */
+    if ((0 == strncmp(token, "map_Ke", 6)) && IS_SPACE(token[6])) {
+      token += 7;
+      material.emission_texname = my_strdup(token, (size_t) (line_end - token));
       continue;
     }
 
@@ -1757,6 +1766,7 @@ void tinyobj_materials_free(tinyobj_material_t *materials,
     if (materials[i].displacement_texname)
       TINYOBJ_FREE(materials[i].displacement_texname);
     if (materials[i].alpha_texname) TINYOBJ_FREE(materials[i].alpha_texname);
+    if (materials[i].emission_texname) TINYOBJ_FREE(materials[i].emission_texname);
   }
 
   TINYOBJ_FREE(materials);

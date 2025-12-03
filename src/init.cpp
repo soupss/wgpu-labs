@@ -7,6 +7,7 @@
 #include "constants.h"
 #include "util.h"
 #include "model.h"
+#include "bind_group.h"
 #include "camera.h"
 
 typedef struct {
@@ -387,80 +388,8 @@ void initialize(State *s) {
     // === LAYOUTS ===
     // ===============
 
-    WGPUBindGroupLayoutEntry bgl_entries[BG_ENTRY_COUNT] = {
-        {
-            .binding = 0,
-            .visibility = WGPUShaderStage_Fragment | WGPUShaderStage_Vertex,
-            .buffer.type = WGPUBufferBindingType_Uniform,
-        },
-        {
-            .binding = 1,
-            .visibility = WGPUShaderStage_Vertex,
-            .buffer.type = WGPUBufferBindingType_Uniform,
-            .buffer.hasDynamicOffset = true,
-            .buffer.minBindingSize = UBO_OBJECT_SLOT_SIZE
-        },
-        {
-            .binding = 2,
-            .visibility = WGPUShaderStage_Fragment,
-            .sampler.type = WGPUSamplerBindingType_Filtering
-        },
-    };
-
-    WGPUBindGroupLayoutDescriptor bgl_desc = {
-        .label = {
-            .data = "bgl",
-            .length = WGPU_STRLEN
-        },
-        .nextInChain = NULL,
-        .entryCount = BG_ENTRY_COUNT,
-        .entries = bgl_entries
-    };
-
-    WGPUBindGroupLayout bgls[2];
-    bgls[0] = wgpuDeviceCreateBindGroupLayout(s->device, &bgl_desc);
-
-    WGPUBindGroupLayoutEntry bgl_model_entries[BG_MODEL_ENTRY_COUNT] = {
-        {
-            .binding = 0,
-            .visibility = WGPUShaderStage_Fragment,
-            .buffer.type = WGPUBufferBindingType_Uniform,
-        },
-        {
-            .binding = 1,
-            .visibility = WGPUShaderStage_Fragment,
-            .texture = {
-                .sampleType = WGPUTextureSampleType_Float,
-                .viewDimension = WGPUTextureViewDimension_2D,
-                .multisampled = false,
-
-            },
-        },
-        {
-            .binding = 2,
-            .visibility = WGPUShaderStage_Fragment,
-            .sampler.type = WGPUSamplerBindingType_Filtering
-        }
-    };
-
-    WGPUBindGroupLayoutDescriptor bgl_model_desc = {
-        .label = {
-            .data = "bgl_model",
-            .length = WGPU_STRLEN
-        },
-        .nextInChain = NULL,
-        .entryCount = BG_MODEL_ENTRY_COUNT,
-        .entries = bgl_model_entries
-    };
-
-    bgls[1] = wgpuDeviceCreateBindGroupLayout(s->device, &bgl_model_desc);
-
-    WGPUPipelineLayoutDescriptor pipeline_layout_desc = {
-        .nextInChain = NULL,
-        .bindGroupLayoutCount = 2,
-        .bindGroupLayouts = bgls
-    };
-    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(s->device, &pipeline_layout_desc);
+    WGPUBindGroupLayout bgls[BG_COUNT];
+    bgls_create(s, bgls);
 
     // ===============
     // === BUFFERS ===
@@ -469,30 +398,14 @@ void initialize(State *s) {
     model_load(s->device, s->queue, bgls[1], &s->model_car, PATH_MODEL_CAR, NULL);
     model_load(s->device, s->queue, bgls[1], &s->model_city, PATH_MODEL_CITY, DIR_CITY_TEXTURES);
 
-    WGPUBufferDescriptor ubo_frame_desc = {
-        .nextInChain = NULL,
-        .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
-        .size = sizeof(UBOData_Frame),
-        .mappedAtCreation = false
-    };
-    s->ubo_frame = wgpuDeviceCreateBuffer(s->device, &ubo_frame_desc);
-
-    WGPUBufferDescriptor ubo_object_desc = {
-        .nextInChain = NULL,
-        .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
-        .size = UBO_OBJECT_SIZE,
-        .mappedAtCreation = false
-    };
-    s->ubo_object = wgpuDeviceCreateBuffer(s->device, &ubo_object_desc);
-
     // ================
     // === TEXTURES ===
     // ================
 
     WGPUSamplerDescriptor sampler_desc = {
-        .addressModeU = WGPUAddressMode_ClampToEdge,
+        .addressModeU = WGPUAddressMode_Repeat,
         .addressModeV = WGPUAddressMode_Repeat,
-        .addressModeW = WGPUAddressMode_ClampToEdge,
+        .addressModeW = WGPUAddressMode_Repeat,
         .magFilter = WGPUFilterMode_Linear,
         .minFilter = WGPUFilterMode_Linear,
         .mipmapFilter = WGPUMipmapFilterMode_Linear,
@@ -502,44 +415,28 @@ void initialize(State *s) {
         .maxAnisotropy = 16
     };
 
-    WGPUSampler sampler = wgpuDeviceCreateSampler(s->device, &sampler_desc);
+    s->sampler = wgpuDeviceCreateSampler(s->device, &sampler_desc);
 
     // ===================
     // === BIND GROUPS ===
     // ===================
 
-    WGPUBindGroupEntry bg_entries[BG_ENTRY_COUNT] = {
-        {
-            .binding = 0,
-            .buffer = s->ubo_frame,
-            .offset = 0,
-            .size = sizeof(UBOData_Frame)
-        },
-        {
-            .binding = 1,
-            .buffer = s->ubo_object,
-            .offset = 0,
-            .size = UBO_OBJECT_SLOT_SIZE
-        },
-        {
-            .binding = 2,
-            .sampler = sampler
-        }
-    };
+    bg_create_frame(s, bgls[0]);
 
-    WGPUBindGroupDescriptor bg_desc = {
-        .nextInChain = NULL,
-        .layout = bgls[0],
-        .entryCount = BG_ENTRY_COUNT,
-        .entries = bg_entries
-    };
-    s->bg = wgpuDeviceCreateBindGroup(s->device, &bg_desc);
 
     // ================
     // === PIPELINE ===
     // ================
 
-    WGPUVertexAttribute vertex_attributes[VERTEX_ATTRIBUTE_COUNT] = { // TODO: magic number
+    WGPUPipelineLayoutDescriptor pipeline_layout_desc = {
+        .nextInChain = NULL,
+        .bindGroupLayoutCount = 2,
+        .bindGroupLayouts = bgls
+    };
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(s->device, &pipeline_layout_desc);
+
+
+    WGPUVertexAttribute vertex_attributes[VERTEX_ATTRIBUTE_COUNT] = {
         {
             .format = WGPUVertexFormat_Float32x3,
             .offset = 0,

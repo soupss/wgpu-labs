@@ -16,11 +16,13 @@
 #define VBO_STRIDE 32 // pos + norm + uv = (3 + 3 + 2) * 4
 #define VERTEX_ATTRIBUTE_COUNT 3
 
+// TODO: is dynamic buffer needed?
 #define UBO_OBJECT_SLOT_SIZE 256
 #define UBO_OBJECT_SLOT_COUNT 2
 #define UBO_OBJECT_SIZE (UBO_OBJECT_SLOT_SIZE * UBO_OBJECT_SLOT_COUNT)
 
-#define BG_ENTRY_COUNT 3
+#define BG_COUNT 2
+#define BG_FRAME_ENTRY_COUNT 3
 #define BG_MODEL_ENTRY_COUNT 3
 #define BG_COMP_ENTRY_COUNT 4
 

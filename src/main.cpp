@@ -10,6 +10,7 @@
 #include "init.hpp"
 #include "state.h"
 #include "camera.h"
+#include "bind_group.h"
 
 typedef struct {
     float camera_pan;
@@ -76,25 +77,14 @@ void _update(State *s, bool *running) {
 
     camera_move(&s->camera, forward, right, up);
 
-    UBOData_Frame ubo_data_frame = {0};
-    camera_get_view_projection(&s->camera, ubo_data_frame.view_projection);
-
-    UBOData_Object ubo_data_car = {
-        .model = GLM_MAT4_IDENTITY_INIT
-    };
-    glm_translate(ubo_data_car.model, (vec3){0.0, 5.0, 0.0});
-
-    UBOData_Object ubo_data_city = {
-        .model = GLM_MAT4_IDENTITY_INIT
-    };
-    glm_translate(ubo_data_city.model, (vec3){0.0, 0.0, 0.0});
+    Uniform_Frame uniform_frame = {0};
 
     uint64_t freq = SDL_GetPerformanceFrequency();
-    ubo_data_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
+    uniform_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
 
-    wgpuQueueWriteBuffer(s->queue, s->ubo_frame, 0, &ubo_data_frame, sizeof(UBOData_Frame));
-    wgpuQueueWriteBuffer(s->queue, s->ubo_object, 0, &ubo_data_car, sizeof(UBOData_Object));
-    wgpuQueueWriteBuffer(s->queue, s->ubo_object, UBO_OBJECT_SLOT_SIZE, &ubo_data_city, sizeof(UBOData_Object));
+    camera_get_view_projection(&s->camera, uniform_frame.view_projection);
+    wgpuQueueWriteBuffer(s->queue, s->ubo_frame, 0, &uniform_frame, sizeof(Uniform_Frame));
+
 }
 
 void _render(State *s) {
@@ -163,11 +153,11 @@ void _render(State *s) {
     wgpuRenderPassEncoderSetPipeline(render_pass, s->pipeline);
 
     uint32_t offset = 0;
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg, 1, &offset);
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
     model_render(&s->model_car, render_pass);
 
     offset = UBO_OBJECT_SLOT_SIZE;
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg, 1, &offset);
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
     model_render(&s->model_city, render_pass);
 
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
@@ -202,7 +192,7 @@ void _terminate(State *s) {
     SDL_Quit();
 
     wgpuSurfaceRelease(s->surface);
-    wgpuBindGroupRelease(s->bg);
+    wgpuBindGroupRelease(s->bg_frame);
     wgpuAdapterRelease(s->adapter);
     wgpuDeviceRelease(s->device);
     wgpuInstanceRelease(s->instance);
