@@ -4,18 +4,12 @@
 #include <stdlib.h>
 #include <webgpu.h>
 #include <cglm/cglm.h>
-
-//TODO: struct needed ? rename to texture?
-typedef struct {
-    WGPUTexture texture;
-    WGPUTextureView view;
-    char *name;
-} TextureMap;
+#include "texture_manager.h"
+struct _State;
+typedef struct _State State;
 
 typedef struct {
     WGPUBindGroup bg;
-    TextureMap diffuse_map;
-    TextureMap emission_map;
     char *name;
 } Material;
 
@@ -35,7 +29,7 @@ typedef struct {
     WGPUBuffer vbo;
 } Model;
 
-void model_load(const WGPUDevice device, const WGPUQueue queue, WGPUBindGroupLayout bgl_model, Model *model, const char *path_obj, const char *path_textures);
+void model_load(State *s, const WGPUBindGroupLayout bgl_model, Model *model, const char *path_obj, const char *path_textures);
 
 void model_render(Model *model, WGPURenderPassEncoder pass);
 

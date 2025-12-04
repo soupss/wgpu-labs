@@ -5,8 +5,8 @@ layout(set = 0, binding = 0) uniform frame {
     float u_time;
 };
 
-layout(set = 0, binding = 1) uniform object {
-    mat4 u_model;
+layout(set = 0, binding = 1) uniform model {
+    mat4 u_model_matrix;
 };
 
 layout(location = 0) in vec3 a_pos;
@@ -20,7 +20,7 @@ void main()
 {
     float t = u_time;
 
-    gl_Position = u_view_projection * u_model * vec4(a_pos, 1.0);
+    gl_Position = u_view_projection * u_model_matrix * vec4(a_pos, 1.0);
 
     v_uv = a_uv;
     v_norm = a_norm;

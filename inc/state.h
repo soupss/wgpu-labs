@@ -7,9 +7,15 @@
 #include "model.h"
 #include "camera.h"
 
-typedef struct {
+typedef struct _State {
     SDL_Window *window;
     SDL_MetalView metal_view;
+
+    Camera camera;
+    Model model_car;
+    Model model_city;
+    TextureManager *tm;
+
     WGPUAdapter adapter;
     WGPUDevice device;
     WGPUInstance instance;
@@ -18,12 +24,9 @@ typedef struct {
     WGPUQueue queue;
     WGPUBindGroup bg_frame;
     WGPUSampler sampler;
-
-    Camera camera;
-    WGPUBuffer ubo_object;
+    WGPUShaderModule shadermodule_comp;
+    WGPUBuffer ubo_model;
     WGPUBuffer ubo_frame;
-    Model model_car;
-    Model model_city;
 } State;
 
 #endif

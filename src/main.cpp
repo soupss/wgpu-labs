@@ -84,7 +84,6 @@ void _update(State *s, bool *running) {
 
     camera_get_view_projection(&s->camera, uniform_frame.view_projection);
     wgpuQueueWriteBuffer(s->queue, s->ubo_frame, 0, &uniform_frame, sizeof(Uniform_Frame));
-
 }
 
 void _render(State *s) {
@@ -146,7 +145,6 @@ void _render(State *s) {
         .depthStencilAttachment = &ds_att
     };
 
-
     // begin render pass
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_desc);
 
@@ -156,7 +154,7 @@ void _render(State *s) {
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
     model_render(&s->model_car, render_pass);
 
-    offset = UBO_OBJECT_SLOT_SIZE;
+    offset = UBO_MODEL_SLOT_SIZE;
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
     model_render(&s->model_city, render_pass);
 
@@ -166,9 +164,7 @@ void _render(State *s) {
     wgpuRenderPassEncoderEnd(render_pass);
     wgpuRenderPassEncoderRelease(render_pass);
 
-    WGPUCommandBufferDescriptor command_buffer_desc = {
-        .nextInChain = NULL
-    };
+    WGPUCommandBufferDescriptor command_buffer_desc = {0};
     WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(encoder, &command_buffer_desc);
     wgpuCommandEncoderRelease(encoder);
 
@@ -183,6 +179,8 @@ void _render(State *s) {
 }
 
 void _terminate(State *s) {
+    texture_manager_terminate(s->tm);
+
     ImGui_ImplWGPU_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

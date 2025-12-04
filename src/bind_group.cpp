@@ -4,7 +4,6 @@
 #include "constants.h"
 #include "util.h"
 
-//TODO: is state needed to pass?
 void bgls_create(const State *s, WGPUBindGroupLayout *bgls) {
     WGPUBindGroupLayoutEntry bgl_frame_entries[BG_FRAME_ENTRY_COUNT] = {
         {
@@ -17,7 +16,7 @@ void bgls_create(const State *s, WGPUBindGroupLayout *bgls) {
             .visibility = WGPUShaderStage_Vertex,
             .buffer.type = WGPUBufferBindingType_Uniform,
             .buffer.hasDynamicOffset = true,
-            .buffer.minBindingSize = UBO_OBJECT_SLOT_SIZE
+            .buffer.minBindingSize = UBO_MODEL_SLOT_SIZE
         },
         {
             .binding = 2,
@@ -87,16 +86,15 @@ void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
         .size = sizeof(Uniform_Frame),
         .mappedAtCreation = false
     };
-    //TODO: remove ubo from state
     s->ubo_frame = wgpuDeviceCreateBuffer(s->device, &ubo_frame_desc);
 
-    WGPUBufferDescriptor ubo_object_desc = {
+    WGPUBufferDescriptor ubo_model_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
-        .size = UBO_OBJECT_SIZE,
+        .size = UBO_MODEL_SIZE,
         .mappedAtCreation = false
     };
-    s->ubo_object = wgpuDeviceCreateBuffer(s->device, &ubo_object_desc);
+    s->ubo_model = wgpuDeviceCreateBuffer(s->device, &ubo_model_desc);
 
     Uniform_ModelMatrix u_model_matrix_car = {
         .model = GLM_MAT4_IDENTITY_INIT
@@ -108,8 +106,8 @@ void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
     };
     glm_translate(u_model_matrix_city.model, (vec3){0.0, 0.0, 0.0});
 
-    wgpuQueueWriteBuffer(s->queue, s->ubo_object, 0, &u_model_matrix_car, sizeof(Uniform_ModelMatrix));
-    wgpuQueueWriteBuffer(s->queue, s->ubo_object, UBO_OBJECT_SLOT_SIZE, &u_model_matrix_city, sizeof(Uniform_ModelMatrix));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, 0, &u_model_matrix_car, sizeof(Uniform_ModelMatrix));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, UBO_MODEL_SLOT_SIZE, &u_model_matrix_city, sizeof(Uniform_ModelMatrix));
 
     WGPUBindGroupEntry bg_entries[BG_FRAME_ENTRY_COUNT] = {
         {
@@ -120,13 +118,13 @@ void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
         },
         {
             .binding = 1,
-            .buffer = s->ubo_object,
+            .buffer = s->ubo_model,
             .offset = 0,
-            .size = UBO_OBJECT_SLOT_SIZE
+            .size = UBO_MODEL_SLOT_SIZE
         },
         {
             .binding = 2,
-            .sampler = s->sampler
+            .sampler = s->tm->sampler
         }
     };
 
@@ -139,7 +137,7 @@ void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
     s->bg_frame = wgpuDeviceCreateBindGroup(s->device, &bg_desc);
 }
 
-void bg_create_material(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout bgl, Material *dst, tinyobj_material_t *src, const char *path_textures) {
+void bg_create_material(State *s, WGPUBindGroupLayout bgl, Material *dst, tinyobj_material_t *src, const char *path_textures) {
     // binding 0 (material)
     Uniform_Material uniform_material = {0};
 
@@ -156,30 +154,34 @@ void bg_create_material(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout 
     uniform_material.dissolve = src->dissolve;
     uniform_material.illumination = src->illum;
 
-    printf("mat: %s, emission: (%f, %f, %f)\n", dst->name, src->emission[0], src->emission[1], src->emission[2]);
-
     WGPUBufferDescriptor buf_desc = {
         .size = sizeof(Uniform_Material),
         .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst
     };
 
-    WGPUBuffer buf = wgpuDeviceCreateBuffer(device, &buf_desc);
-    wgpuQueueWriteBuffer(queue, buf, 0, &uniform_material, sizeof(Uniform_Material));
+    WGPUBuffer buf = wgpuDeviceCreateBuffer(s->device, &buf_desc);
+    wgpuQueueWriteBuffer(s->queue, buf, 0, &uniform_material, sizeof(Uniform_Material));
 
     // binding 1&2 (texture maps)
-    printf("diffuse map\n");
-    TextureMap *tm_diffuse = &dst->diffuse_map;
-    char path_diffusemap[1024];
-    u_get_texture_path(path_diffusemap, sizeof(path_diffusemap), path_textures, src->diffuse_texname);
-    printf("%s + %s became %s\n", path_textures,src->diffuse_texname, path_diffusemap);
-    u_texturemap_load(device, queue, tm_diffuse, path_diffusemap);
+    WGPUTextureView view_diffuse_map = {0};
+    if (src->diffuse_texname == NULL) {
+        view_diffuse_map = texture_manager_get_view_identity(s->tm);
+    }
+    else {
+        char path_diffuse_map[1024];
+        u_get_texture_path(path_diffuse_map, sizeof(path_diffuse_map), path_textures, src->diffuse_texname);
+        view_diffuse_map = texture_manager_get_view(s->tm, path_diffuse_map);
+    }
 
-    printf("emission map\n");
-    TextureMap *tm_emission = &dst->emission_map;
-    char path_emissionmap[1024];
-    u_get_texture_path(path_emissionmap, sizeof(path_emissionmap), path_textures, src->emission_texname);
-    printf("%s + %s became %s\n", path_textures,src->emission_texname, path_emissionmap);
-    u_texturemap_load(device, queue, tm_emission, path_emissionmap);
+    WGPUTextureView view_emission_map = {0};
+    if (src->emission_texname == NULL) {
+        view_emission_map = texture_manager_get_view_identity(s->tm);
+    }
+    else {
+        char path_emission_map[1024];
+        u_get_texture_path(path_emission_map, sizeof(path_emission_map), path_textures, src->emission_texname);
+        view_emission_map = texture_manager_get_view(s->tm, path_emission_map);
+    }
 
     WGPUBindGroupEntry bg_entries[BG_MODEL_ENTRY_COUNT] = {
         {
@@ -190,11 +192,11 @@ void bg_create_material(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout 
         },
         {
             .binding = 1,
-            .textureView = tm_diffuse->view
+            .textureView = view_diffuse_map
         },
         {
             .binding = 2,
-            .textureView = tm_emission->view
+            .textureView = view_emission_map
         },
     };
 
@@ -205,5 +207,5 @@ void bg_create_material(WGPUDevice device, WGPUQueue queue, WGPUBindGroupLayout 
         .layout = bgl
     };
 
-    dst->bg = wgpuDeviceCreateBindGroup(device, &bg_desc);
+    dst->bg = wgpuDeviceCreateBindGroup(s->device, &bg_desc);
 }

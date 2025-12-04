@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "bind_group.h"
+#include "state.h"
 
 typedef struct {
     float v[3];
@@ -44,7 +45,7 @@ static void _on_file_read(void *ctx,
     *len = size;
 }
 
-void model_load(const WGPUDevice device, const WGPUQueue queue, const WGPUBindGroupLayout bgl_model, Model *model, const char *path_obj, const char *path_textures) {
+void model_load(State *s, const WGPUBindGroupLayout bgl_model, Model *model, const char *path_obj, const char *path_textures) {
     ////////////////////
     // parse obj file //
     ////////////////////
@@ -85,9 +86,7 @@ void model_load(const WGPUDevice device, const WGPUQueue queue, const WGPUBindGr
         Material *dst = &(model->materials[i]);
         tinyobj_material_t *src = &(materials[i]);
         dst->name = src->name;
-        dst->diffuse_map.name = src->diffuse_texname;
-        dst->emission_map.name = src->emission_texname;
-        bg_create_material(device, queue, bgl_model, dst, src, path_textures);
+        bg_create_material(s, bgl_model, dst, src, path_textures);
     }
 
     ////////////////
@@ -132,9 +131,9 @@ void model_load(const WGPUDevice device, const WGPUQueue queue, const WGPUBindGr
         .usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
         .mappedAtCreation = false
     };
-    model->vbo = wgpuDeviceCreateBuffer(device, &vbo_desc);
+    model->vbo = wgpuDeviceCreateBuffer(s->device, &vbo_desc);
 
-    wgpuQueueWriteBuffer(queue, model->vbo, 0, vertices, vbo_size);
+    wgpuQueueWriteBuffer(s->queue, model->vbo, 0, vertices, vbo_size);
     free(vertices);
 
     ///////////////////
@@ -188,7 +187,6 @@ void model_render(Model *model, WGPURenderPassEncoder pass) {
         Mesh mesh = model->meshes[i];
         int i_mat = mesh.i_material;
         Material mat = model->materials[i_mat];
-        // printf("mat: %s, emap: %s, dmap: %s \n", mat.name, mat.emission_map.name ? mat.emission_map.name : "none", mat.diffuse_map.name ? mat.diffuse_map.name : "none");
         wgpuRenderPassEncoderSetBindGroup(pass, 1, mat.bg, 0, 0);
         wgpuRenderPassEncoderDraw(pass, mesh.i_count, 1, mesh.i_start, 0);
     }
