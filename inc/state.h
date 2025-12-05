@@ -14,6 +14,7 @@ typedef struct _State {
     Camera camera;
     Model model_car;
     Model model_city;
+    Model model_ground;
     TextureManager *tm;
 
     WGPUAdapter adapter;

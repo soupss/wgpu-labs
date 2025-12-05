@@ -240,6 +240,7 @@ void initialize(State *s) {
 
     model_load(s, bgls[1], &s->model_car, PATH_MODEL_CAR, NULL);
     model_load(s, bgls[1], &s->model_city, PATH_MODEL_CITY, DIR_CITY_TEXTURES);
+    model_load(s, bgls[1], &s->model_ground, PATH_MODEL_GROUND, NULL);
 
     // ===================
     // === BIND GROUPS ===

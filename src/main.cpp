@@ -31,8 +31,7 @@ void _render_imgui(Options *o) {
 void _update(State *s, bool *running) {
     SDL_Event e;
 
-    const float sens_rot = 0.0015;
-    const float sens_zoom = 2.0;
+    static bool third_person = false;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE)) {
             *running = false;
@@ -42,48 +41,115 @@ void _update(State *s, bool *running) {
             int dir;
             if (e.wheel.y > 0) dir = 1;
             if (e.wheel.y < 0) dir = -1;
-            s->camera.distance += dir * sens_zoom;
+            s->camera.distance += dir * SPEED_CAMERA_ZOOM;
         }
 
-        if (e.type == SDL_EVENT_MOUSE_MOTION) {
-            s->camera.yaw += e.motion.xrel * sens_rot;
-            s->camera.pitch -= e.motion.yrel * sens_rot;
+        if (!third_person && e.type == SDL_EVENT_MOUSE_MOTION) {
+            s->camera.yaw += e.motion.xrel * SPEED_CAMERA_ROTATE;
+            s->camera.pitch -= e.motion.yrel * SPEED_CAMERA_ROTATE;
+        }
+
+        if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_3) {
+            // TODO:
+            third_person = !third_person;
         }
     }
-    const float sens_move = 0.5;
-    float forward = 0, right = 0, up = 0;
     const bool *keys = SDL_GetKeyboardState(NULL);
-    float dir[3];
-    if (keys[SDL_SCANCODE_W]) {
-        forward = sens_move;
-    }
-    if (keys[SDL_SCANCODE_A]) {
-        right = -sens_move;
-    }
-    if (keys[SDL_SCANCODE_S]) {
-        forward = -sens_move;
-    }
-    if (keys[SDL_SCANCODE_D]) {
-        right = sens_move;
-    }
-    if (keys[SDL_SCANCODE_SPACE]) {
-        up = sens_move;
-    }
-    if (keys[SDL_SCANCODE_LCTRL]) {
-        up = -sens_move;
+    if (!third_person) {
+        float forward = 0, right = 0, up = 0;
+        // camera controls
+        if (keys[SDL_SCANCODE_W]) {
+            forward = SPEED_CAMERA_MOVE;
+        }
+        if (keys[SDL_SCANCODE_A]) {
+            right = -SPEED_CAMERA_MOVE;
+        }
+        if (keys[SDL_SCANCODE_S]) {
+            forward = -SPEED_CAMERA_MOVE;
+        }
+        if (keys[SDL_SCANCODE_D]) {
+            right = SPEED_CAMERA_MOVE;
+        }
+        if (keys[SDL_SCANCODE_SPACE]) {
+            up = SPEED_CAMERA_MOVE;
+        }
+        if (keys[SDL_SCANCODE_LCTRL]) {
+            up = -SPEED_CAMERA_MOVE;
+        }
+        camera_move(&s->camera, forward, right, up);
     }
 
-    ImGui_ImplSDL3_ProcessEvent(&e);
-
-    camera_move(&s->camera, forward, right, up);
+    static mat4 model_matrix_car_player = GLM_MAT4_IDENTITY_INIT;
+    // car controls
+    vec3 axis = {0.0, 1.0, 0.0};
+    if (keys[SDL_SCANCODE_LEFT]) {
+        glm_rotate(model_matrix_car_player, SPEED_CAR_ROTATE, axis);
+    }
+    if (keys[SDL_SCANCODE_RIGHT]) {
+        glm_rotate(model_matrix_car_player, -SPEED_CAR_ROTATE, axis);
+    }
+    if (keys[SDL_SCANCODE_UP]) {
+        glm_translate(model_matrix_car_player, (vec3){0.0, 0.0, SPEED_CAR_MOVE});
+    }
+    if (keys[SDL_SCANCODE_DOWN]) {
+        glm_translate(model_matrix_car_player, (vec3){0.0, 0.0, -SPEED_CAR_MOVE});
+    }
 
     Uniform_Frame uniform_frame = {0};
+    mat4 view_projection_matrix;
+
+    if (third_person) {
+        vec3 camera_offset = {0.0f, 7.0f, -12.5f}; // car model space
+
+        vec3 car_position;
+        glm_vec3_copy(model_matrix_car_player[3], car_position);
+
+        // set camera pos to car's world space plus camera offset
+        vec3 camera_position;
+        vec3 camera_lookat = {0.0, 0.0, 8.0};  // in car model space
+        glm_mat4_mulv3(model_matrix_car_player, camera_offset, 1.0f, camera_position);
+        glm_mat4_mulv3(model_matrix_car_player, camera_lookat, 1.0f, camera_lookat);
+
+        mat4 view_matrix;
+        vec3 up_vector = {0.0f, 1.0f, 0.0f};
+        glm_lookat(camera_position, camera_lookat, up_vector, view_matrix);
+
+        mat4 projection_matrix;
+
+        float fovy = glm_rad(45.0);
+        float aspect = (float)WINDOW_WIDTH / WINDOW_HEIGHT;
+        float z_near = 0.1f;
+        float z_far = 1000.f;
+        glm_perspective(fovy, aspect, z_near, z_far, projection_matrix);
+        glm_mat4_mul(projection_matrix, view_matrix, view_projection_matrix);
+    } else {
+        // Use the existing camera system when not in third-person
+        camera_get_view_projection(&s->camera, view_projection_matrix);
+    }
+
+    glm_mat4_copy(view_projection_matrix, uniform_frame.view_projection);
+
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, 0, &model_matrix_car_player, sizeof(mat4));
+
+    // self driving car
+
+    static mat4 model_matrix_car_computer = {
+        {1.0f, 0.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f, 0.0f},
+        {10.0f, 0.0f, 0.0f, 1.0f}
+    };
+
+    glm_rotate(model_matrix_car_computer, SPEED_CAR_ROTATE, axis);
+    glm_translate(model_matrix_car_computer, (vec3){0.0, 0.0, SPEED_CAR_MOVE});
+
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, UBO_MODEL_SLOT_SIZE, &model_matrix_car_computer, sizeof(mat4));
 
     uint64_t freq = SDL_GetPerformanceFrequency();
     uniform_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
-
-    camera_get_view_projection(&s->camera, uniform_frame.view_projection);
     wgpuQueueWriteBuffer(s->queue, s->ubo_frame, 0, &uniform_frame, sizeof(Uniform_Frame));
+
+    ImGui_ImplSDL3_ProcessEvent(&e);
 }
 
 void _render(State *s) {
@@ -156,7 +222,15 @@ void _render(State *s) {
 
     offset = UBO_MODEL_SLOT_SIZE;
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
+    model_render(&s->model_car, render_pass);
+
+    offset = 2*UBO_MODEL_SLOT_SIZE;
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
     model_render(&s->model_city, render_pass);
+
+    offset = 3*UBO_MODEL_SLOT_SIZE;
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, s->bg_frame, 1, &offset);
+    model_render(&s->model_ground, render_pass);
 
     ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), render_pass);
 

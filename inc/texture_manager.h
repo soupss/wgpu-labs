@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <webgpu.h>
 #include <unordered_map>
+#include <string>
 
 struct _State;
 typedef _State State;
@@ -17,15 +18,15 @@ struct TextureManager {
     WGPUDevice device;
     WGPUQueue queue;
     WGPUSampler sampler;
-    std::unordered_map<const char*,CachedTexture> texture_cache;
+    std::unordered_map<std::string, CachedTexture> texture_cache;
 };
 
 void texture_manager_init(const State *s, TextureManager *tm);
 
-WGPUTextureView texture_manager_get_view(const TextureManager *tm, const char *path);
+WGPUTextureView texture_manager_get_view(TextureManager *tm, std::string path);
 
 // returns a white square
-WGPUTextureView texture_manager_get_view_identity(const TextureManager *tm);
+WGPUTextureView texture_manager_get_view_identity(TextureManager *tm);
 
 void texture_manager_terminate(TextureManager *tm);
 

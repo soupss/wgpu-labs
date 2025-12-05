@@ -9,6 +9,8 @@ void texture_manager_init(const State *s, TextureManager *tm) {
     tm->device = s->device;
     tm->queue = s->queue;
 
+    new (&tm->texture_cache) std::unordered_map<std::string, CachedTexture>();
+
     WGPUSamplerDescriptor sampler_desc = {
         .addressModeU = WGPUAddressMode_Repeat,
         .addressModeV = WGPUAddressMode_Repeat,
@@ -24,28 +26,29 @@ void texture_manager_init(const State *s, TextureManager *tm) {
     tm->sampler = wgpuDeviceCreateSampler(s->device, &sampler_desc);
 }
 
-WGPUTextureView texture_manager_get_view(const TextureManager *tm, const char *path) {
+WGPUTextureView texture_manager_get_view(TextureManager *tm, std::string path) {
     CachedTexture t = {0};
 
     auto search = tm->texture_cache.find(path);
-    if ( search != tm->texture_cache.end()) { // texture cached
+    if (search != tm->texture_cache.end()) { // texture cached
         t = search->second;
+        printf("used cached view %s\n", path.c_str());
     }
     else {
         // load pixels
         int w,h;
         const int channels = 4;
         stbi_set_flip_vertically_on_load(true);
-        unsigned char *pixels = stbi_load(path, &w, &h, NULL, channels);
+        unsigned char *pixels = stbi_load(path.c_str(), &w, &h, NULL, channels);
         if (!pixels) {
-            fprintf(stderr, "Failed to load image %s: %s!\n", path, stbi_failure_reason());
+            fprintf(stderr, "Failed to load image %s: %s!\n", path.c_str(), stbi_failure_reason());
             return NULL;
         }
 
         // create texture
         WGPUExtent3D size = {(uint32_t)w, (uint32_t)h, 1};
         WGPUTextureDescriptor tex_desc = {
-            .label = {path, WGPU_STRLEN},
+            .label = {path.c_str(), WGPU_STRLEN},
             .size = size,
             .sampleCount = 1,
             .mipLevelCount = 1,
@@ -82,17 +85,21 @@ WGPUTextureView texture_manager_get_view(const TextureManager *tm, const char *p
             .aspect = WGPUTextureAspect_All,
         };
         t.view = wgpuTextureCreateView(t.texture, &view_desc);
+
+        printf("caching %s\n", path.c_str());
+        tm->texture_cache.insert({path, t});
     }
     return t.view;
 }
 
 // returns a white square view
-WGPUTextureView texture_manager_get_view_identity(const TextureManager *tm) {
+WGPUTextureView texture_manager_get_view_identity(TextureManager *tm) {
     CachedTexture t = {0};
 
     auto search = tm->texture_cache.find("identity");
     if (search != tm->texture_cache.end()) { // texture cached
         t = search->second;
+        printf("used cached identity view\n");
     }
     else {
         // create texture
@@ -136,6 +143,10 @@ WGPUTextureView texture_manager_get_view_identity(const TextureManager *tm) {
             .aspect = WGPUTextureAspect_All,
         };
         t.view = wgpuTextureCreateView(t.texture, &view_desc);
+        // add to cache
+        printf("caching identity\n");
+        std::string key = "identity";
+        tm->texture_cache.insert({key, t});
     }
     return t.view;
 }
@@ -146,4 +157,5 @@ void texture_manager_terminate(TextureManager *tm) {
         wgpuTextureViewRelease(search->second.view);
         wgpuTextureRelease(search->second.texture);
     }
+    tm->texture_cache.~unordered_map();
 }

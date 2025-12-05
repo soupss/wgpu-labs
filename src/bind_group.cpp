@@ -80,6 +80,7 @@ void bgls_create(const State *s, WGPUBindGroupLayout *bgls) {
 }
 
 void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
+    // binding 0
     WGPUBufferDescriptor ubo_frame_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
@@ -88,6 +89,7 @@ void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
     };
     s->ubo_frame = wgpuDeviceCreateBuffer(s->device, &ubo_frame_desc);
 
+    // binding 1
     WGPUBufferDescriptor ubo_model_desc = {
         .nextInChain = NULL,
         .usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst,
@@ -96,18 +98,20 @@ void bg_create_frame(State *s, WGPUBindGroupLayout bgl) {
     };
     s->ubo_model = wgpuDeviceCreateBuffer(s->device, &ubo_model_desc);
 
-    Uniform_ModelMatrix u_model_matrix_car = {
+    Uniform_ModelMatrix identity = {
         .model = GLM_MAT4_IDENTITY_INIT
     };
-    glm_translate(u_model_matrix_car.model, (vec3){0.0, 5.0, 0.0});
 
-    Uniform_ModelMatrix u_model_matrix_city = {
+    Uniform_ModelMatrix model_matrix_ground = {
         .model = GLM_MAT4_IDENTITY_INIT
     };
-    glm_translate(u_model_matrix_city.model, (vec3){0.0, 0.0, 0.0});
 
-    wgpuQueueWriteBuffer(s->queue, s->ubo_model, 0, &u_model_matrix_car, sizeof(Uniform_ModelMatrix));
-    wgpuQueueWriteBuffer(s->queue, s->ubo_model, UBO_MODEL_SLOT_SIZE, &u_model_matrix_city, sizeof(Uniform_ModelMatrix));
+    glm_translate(model_matrix_ground.model, (vec3){0, -0.5+ 0.0005, 0});
+
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, 0, &identity, sizeof(Uniform_ModelMatrix));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, UBO_MODEL_SLOT_SIZE, &identity, sizeof(Uniform_ModelMatrix));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, 2*UBO_MODEL_SLOT_SIZE, &identity, sizeof(Uniform_ModelMatrix));
+    wgpuQueueWriteBuffer(s->queue, s->ubo_model, 3*UBO_MODEL_SLOT_SIZE, &model_matrix_ground, sizeof(Uniform_ModelMatrix));
 
     WGPUBindGroupEntry bg_entries[BG_FRAME_ENTRY_COUNT] = {
         {
@@ -168,7 +172,7 @@ void bg_create_material(State *s, WGPUBindGroupLayout bgl, Material *dst, tinyob
         view_diffuse_map = texture_manager_get_view_identity(s->tm);
     }
     else {
-        char path_diffuse_map[1024];
+        char path_diffuse_map[1024] = {0};
         u_get_texture_path(path_diffuse_map, sizeof(path_diffuse_map), path_textures, src->diffuse_texname);
         view_diffuse_map = texture_manager_get_view(s->tm, path_diffuse_map);
     }
@@ -178,7 +182,7 @@ void bg_create_material(State *s, WGPUBindGroupLayout bgl, Material *dst, tinyob
         view_emission_map = texture_manager_get_view_identity(s->tm);
     }
     else {
-        char path_emission_map[1024];
+        char path_emission_map[1024] = {0};
         u_get_texture_path(path_emission_map, sizeof(path_emission_map), path_textures, src->emission_texname);
         view_emission_map = texture_manager_get_view(s->tm, path_emission_map);
     }
