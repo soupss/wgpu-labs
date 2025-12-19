@@ -11,28 +11,16 @@
 #include "state.h"
 #include "camera.h"
 #include "bind_group.h"
+#include "debug.h"
 
-typedef struct {
-    float camera_pan;
-    int mag_filter;
-    int min_filter;
-    int mipmap_filter;
-    int max_anisotropy;
-} Options;
-
-void _render_imgui(Options *o) {
-    ImGui_ImplSDL3_NewFrame();
-    ImGui_ImplWGPU_NewFrame();
-    ImGui::NewFrame();
-
-    ImGui::Render();
-}
-
-void _update(State *s, bool *running) {
+static void _update(State *s, Options *o, bool *running) {
+    ImGuiIO &io = ImGui::GetIO();
     SDL_Event e;
 
+    static bool dragging = false;
     static bool third_person = false;
     while (SDL_PollEvent(&e)) {
+        ImGui_ImplSDL3_ProcessEvent(&e);
         if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE)) {
             *running = false;
         }
@@ -44,16 +32,20 @@ void _update(State *s, bool *running) {
             s->camera.distance += dir * SPEED_CAMERA_ZOOM;
         }
 
-        if (!third_person && e.type == SDL_EVENT_MOUSE_MOTION) {
-            s->camera.yaw += e.motion.xrel * SPEED_CAMERA_ROTATE;
-            s->camera.pitch -= e.motion.yrel * SPEED_CAMERA_ROTATE;
+        if (!io.WantCaptureMouse) {
+            if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) dragging = true;
+            if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) dragging = false;
+            if (dragging && e.type == SDL_EVENT_MOUSE_MOTION) {
+                s->camera.yaw -= e.motion.xrel * SPEED_CAMERA_ROTATE;
+                s->camera.pitch += e.motion.yrel * SPEED_CAMERA_ROTATE;
+            }
         }
 
         if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_3) {
-            // TODO:
             third_person = !third_person;
         }
     }
+
     const bool *keys = SDL_GetKeyboardState(NULL);
     if (!third_person) {
         float forward = 0, right = 0, up = 0;
@@ -99,33 +91,13 @@ void _update(State *s, bool *running) {
     mat4 view_projection_matrix;
 
     if (third_person) {
-        vec3 camera_offset = {0.0f, 7.0f, -12.5f}; // car model space
-
-        vec3 car_position;
-        glm_vec3_copy(model_matrix_car_player[3], car_position);
-
-        // set camera pos to car's world space plus camera offset
-        vec3 camera_position;
-        vec3 camera_lookat = {0.0, 0.0, 8.0};  // in car model space
-        glm_mat4_mulv3(model_matrix_car_player, camera_offset, 1.0f, camera_position);
-        glm_mat4_mulv3(model_matrix_car_player, camera_lookat, 1.0f, camera_lookat);
-
-        mat4 view_matrix;
-        vec3 up_vector = {0.0f, 1.0f, 0.0f};
-        glm_lookat(camera_position, camera_lookat, up_vector, view_matrix);
-
-        mat4 projection_matrix;
-
-        float fovy = glm_rad(45.0);
-        float aspect = (float)WINDOW_WIDTH / WINDOW_HEIGHT;
-        float z_near = 0.1f;
-        float z_far = 1000.f;
-        glm_perspective(fovy, aspect, z_near, z_far, projection_matrix);
-        glm_mat4_mul(projection_matrix, view_matrix, view_projection_matrix);
-    } else {
-        // Use the existing camera system when not in third-person
-        camera_get_view_projection(&s->camera, view_projection_matrix);
+        // set camera to car world space plus offset
+        vec3 camera_offset = {0.0f, 7.0f, -12.5f};
+        glm_mat4_mulv3(model_matrix_car_player, camera_offset, 1.0f, s->camera.pos);
+        vec3 camera_lookat = {0.0, 0.0, 8.0};
+        glm_mat4_mulv3(model_matrix_car_player, camera_lookat, 1.0f, s->camera.target);
     }
+    camera_get_view_projection(&s->camera, o, view_projection_matrix);
 
     glm_mat4_copy(view_projection_matrix, uniform_frame.view_projection);
 
@@ -148,8 +120,6 @@ void _update(State *s, bool *running) {
     uint64_t freq = SDL_GetPerformanceFrequency();
     uniform_frame.time = (float)(SDL_GetPerformanceCounter() / (float)freq);
     wgpuQueueWriteBuffer(s->queue, s->ubo_frame, 0, &uniform_frame, sizeof(Uniform_Frame));
-
-    ImGui_ImplSDL3_ProcessEvent(&e);
 }
 
 void _render(State *s) {
@@ -283,20 +253,20 @@ int main() {
     };
 
     Options o = {
-        .camera_pan = 0.0,
-        .mag_filter = WGPUFilterMode_Linear,
-        .min_filter = WGPUFilterMode_Linear,
-        .mipmap_filter = WGPUMipmapFilterMode_Linear,
-        .max_anisotropy = 1,
+        .fov = 90,
+        .window_width =  1000,
+        .window_height = 800,
+        .near_plane = 0.01,
+        .far_plane = 100.0,
     };
 
     initialize(&s);
 
     bool running = true;
     while (running) {
-        _update(&s, &running);
+        _update(&s, &o, &running);
 
-        _render_imgui(&o);
+        imgui_render(&o);
 
         _render(&s);
     }

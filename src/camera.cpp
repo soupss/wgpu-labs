@@ -1,17 +1,15 @@
 #include "camera.h"
 #include "constants.h"
 
-void camera_get_view_projection(Camera *cam, mat4 out) {
+void camera_get_view_projection(Camera *cam, Options *o, mat4 out) {
     mat4 view = GLM_MAT4_IDENTITY_INIT;
     vec3 up = {0.0, 1.0, 0.0};
     glm_lookat(cam->pos,  cam->target, up, view);
 
     mat4 projection = GLM_MAT4_IDENTITY_INIT;
-    float fovy = 45.0;
-    float aspect_ratio = (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT;
-    float near_plane = 0.01f;
-    float far_plane = 300.0f;
-    glm_perspective(fovy, aspect_ratio, near_plane, far_plane, projection);
+    float fovy = glm_rad(o->fov);
+    float aspect_ratio = (float)o->window_width / (float)o->window_height;
+    glm_perspective(fovy, aspect_ratio, o->near_plane, o->far_plane, projection);
 
     glm_mat4_mul(projection, view, out);
 }

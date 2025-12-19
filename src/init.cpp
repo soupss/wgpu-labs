@@ -81,7 +81,7 @@ void initialize(State *s) {
     s->window = SDL_CreateWindow("a", WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_METAL);
     s->metal_view = SDL_Metal_CreateView(s->window);
     void* metal_layer = SDL_Metal_GetLayer(s->metal_view);
-    SDL_SetWindowRelativeMouseMode(s->window, true);
+    // SDL_SetWindowRelativeMouseMode(s->window, true);
 
     WGPUInstanceDescriptor instance_desc = {
         .nextInChain= NULL
@@ -353,7 +353,7 @@ void initialize(State *s) {
     imgui_init.Device = s->device;
     imgui_init.NumFramesInFlight = 3;
     imgui_init.RenderTargetFormat = surface_format;
-    imgui_init.DepthStencilFormat = WGPUTextureFormat_Undefined;
+    imgui_init.DepthStencilFormat = WGPUTextureFormat_Depth24Plus;
     ImGui_ImplWGPU_Init(&imgui_init);
 
     wgpuShaderModuleRelease(vertex_shader_module);

@@ -2,6 +2,7 @@
 #define CAMERA_H
 
 #include "cglm/cglm.h"
+#include "debug.h"
 
 typedef struct {
     vec3 pos;
@@ -16,7 +17,7 @@ typedef struct {
 
 void camera_update(Camera *cam);
 
-void camera_get_view_projection(Camera *cam, mat4 out);
+void camera_get_view_projection(Camera *cam, Options *o, mat4 out);
 
 void camera_rebuild_orbit(Camera* c);
 
